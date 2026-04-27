@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "imgsync.fullname" . }}
+  labels:
+    {{- include "imgsync.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "imgsync.selectorLabels" . | nindent 6 }}
+  strategy:
+    # RollingUpdate is fine — workers are stateless from k8s' POV; lease ownership lives in DB.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "imgsync.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll pods when ConfigMap changes (env from envFrom)
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "imgsync.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 60   # let in-flight Send() finish a chunk before kill
+      containers:
+        - name: worker
+          image: {{ include "imgsync.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["worker"]
+          ports:
+            - name: health
+              containerPort: {{ .Values.health.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "imgsync.fullname" . }}
+          env:
+            - name: IMGSYNC_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: IMGSYNC_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dsnSecretRef.name }}
+                  key:  {{ .Values.dsnSecretRef.key }}
+            {{- if .Values.ftpSecretRef.name }}
+            - name: IMGSYNC_FTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ftpSecretRef.name }}
+                  key:  {{ .Values.ftpSecretRef.userKey }}
+            - name: IMGSYNC_FTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ftpSecretRef.name }}
+                  key:  {{ .Values.ftpSecretRef.passwordKey }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.health.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.health.readinessProbe | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.health.startupProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # readOnlyRootFilesystem=true forces /tmp to be a writable emptyDir
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
