@@ -69,7 +69,7 @@ func TestPool_MaxPerHost_BlocksUntilRelease(t *testing.T) {
 	b, _ := pool.Acquire(context.Background(), srv.Addr)
 	t.Cleanup(func() { a.Release(false); b.Release(false) })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	_, err := pool.Acquire(ctx, srv.Addr)
 	require.ErrorIs(t, err, context.DeadlineExceeded, "third acquire must block past cap")

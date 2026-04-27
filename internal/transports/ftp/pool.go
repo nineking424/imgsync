@@ -107,13 +107,29 @@ func (p *Pool) IdleCount(host string) int {
 	return 0
 }
 
+// ErrPoolClosed is returned by Acquire when the pool has been closed.
+var ErrPoolClosed = errors.New("ftp pool: closed")
+
+// wakeOneWaiter pops the first waiting goroutine from hp and sends it a token.
+// Must be called with p.mu held.
+func wakeOneWaiter(hp *hostPool) {
+	if len(hp.waiters) > 0 {
+		ch := hp.waiters[0]
+		hp.waiters = hp.waiters[1:]
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
 // Acquire returns a usable connection to host. Blocks if MaxPerHost is reached.
 func (p *Pool) Acquire(ctx context.Context, host string) (*PooledConn, error) {
 	for {
 		p.mu.Lock()
 		if p.closed {
 			p.mu.Unlock()
-			return nil, errors.New("ftp pool: closed")
+			return nil, ErrPoolClosed
 		}
 		hp := p.getHost(host)
 
@@ -141,16 +157,9 @@ func (p *Pool) Acquire(ctx context.Context, host string) (*PooledConn, error) {
 				if err := acquired.NoOp(); err != nil {
 					_ = acquired.Quit()
 					p.mu.Lock()
-					p.hosts[host].inUse--
-					// Wake a waiter if any, since we freed a slot.
-					if hp2 := p.hosts[host]; len(hp2.waiters) > 0 {
-						ch := hp2.waiters[0]
-						hp2.waiters = hp2.waiters[1:]
-						select {
-						case ch <- struct{}{}:
-						default:
-						}
-					}
+					hp2 := p.hosts[host]
+					hp2.inUse--
+					wakeOneWaiter(hp2) // freed a slot; wake a parked waiter
 					p.mu.Unlock()
 					// Loop back to try again (idle or fresh dial).
 					continue
@@ -166,7 +175,9 @@ func (p *Pool) Acquire(ctx context.Context, host string) (*PooledConn, error) {
 			conn, err := p.dial(ctx, host)
 			if err != nil {
 				p.mu.Lock()
-				p.hosts[host].inUse--
+				hp2 := p.hosts[host]
+				hp2.inUse--
+				wakeOneWaiter(hp2) // slot freed; unblock a parked waiter
 				p.mu.Unlock()
 				return nil, err
 			}
@@ -182,13 +193,24 @@ func (p *Pool) Acquire(ctx context.Context, host string) (*PooledConn, error) {
 		case <-ctx.Done():
 			// Best-effort waiter eviction.
 			p.mu.Lock()
-			if hp2, ok := p.hosts[host]; ok {
+			hp2, ok := p.hosts[host]
+			found := false
+			if ok {
 				for i, w := range hp2.waiters {
 					if w == ch {
 						hp2.waiters = append(hp2.waiters[:i], hp2.waiters[i+1:]...)
+						found = true
 						break
 					}
 				}
+			}
+			if !found && ok {
+				// release already popped us — token may be in ch's buffer; forward it.
+				select {
+				case <-ch:
+				default:
+				}
+				wakeOneWaiter(hp2)
 			}
 			p.mu.Unlock()
 			return nil, ctx.Err()
@@ -235,19 +257,13 @@ func (p *Pool) release(host string, c *ftp.ServerConn, broken bool) {
 	if broken || p.closed {
 		_ = c.Quit()
 	} else {
+		now := time.Now()
 		hp.idle = append(hp.idle, &idleEntry{
 			c:       c,
-			enqueue: time.Now(),
-			lastUse: time.Now(),
+			enqueue: now,
+			lastUse: now,
 		})
 	}
 	// Wake one waiter if any.
-	if len(hp.waiters) > 0 {
-		ch := hp.waiters[0]
-		hp.waiters = hp.waiters[1:]
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
+	wakeOneWaiter(hp)
 }
