@@ -30,7 +30,14 @@ func ProcessJob(ctx context.Context, d Deps, job *Job) error {
 	if openErr != nil {
 		return classifyAndWrite(ctx, d, job, openErr, openErrDetails(openErr), start)
 	}
-	defer func() { _ = body.Close() }()
+	// Ensure body is closed exactly once: explicit close on success before
+	// committing 'succeeded'; deferred close on every other path.
+	closed := false
+	defer func() {
+		if !closed {
+			_ = body.Close()
+		}
+	}()
 
 	cw := &counter{r: body}
 	written, shaHex, sendErr := d.Transport.Send(ctx, job.Dst, cw, srcSize)
@@ -42,15 +49,27 @@ func ProcessJob(ctx context.Context, d Deps, job *Job) error {
 	if srcSize >= 0 && written != srcSize {
 		return classifyAndWrite(ctx, d, job,
 			fmt.Errorf("size mismatch: src=%d written=%d: %w", srcSize, written, transfer.ErrPermanent),
-			map[string]any{"reason": "size_mismatch", "src_size": srcSize, "written": written},
+			map[string]any{"reason": "size_mismatch", "stage": "verify", "src_size": srcSize, "written": written},
 			start)
 	}
 	if srcSize < 0 && cw.n != written {
 		return classifyAndWrite(ctx, d, job,
 			fmt.Errorf("size mismatch: read=%d written=%d: %w", cw.n, written, transfer.ErrPermanent),
-			map[string]any{"reason": "size_mismatch_unknown_src", "read": cw.n, "written": written},
+			map[string]any{"reason": "size_mismatch_unknown_src", "stage": "verify", "read": cw.n, "written": written},
 			start)
 	}
+
+	// Source close error after a successful send is a retryable transport-class
+	// failure (e.g., FTP 226 final-response did not arrive cleanly). Treat it
+	// the same as Transport.Send returning a retryable error.
+	if closeErr := body.Close(); closeErr != nil {
+		closed = true
+		return classifyAndWrite(ctx, d, job,
+			fmt.Errorf("source close after send: %w", closeErr),
+			map[string]any{"error": closeErr.Error(), "stage": "source_close"},
+			start)
+	}
+	closed = true
 
 	return writeSuccess(ctx, d, job, written, shaHex, start)
 }
@@ -127,7 +146,6 @@ INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,'fa
 		job.TraceID, job.ID, detailJSON); err != nil {
 		return err
 	}
-	_ = jobErr // consumed via detail map; retained for caller context
 	return tx.Commit(ctx)
 }
 
@@ -161,7 +179,7 @@ INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,$3,
 }
 
 func openErrDetails(err error) map[string]any {
-	d := map[string]any{"error": err.Error()}
+	d := map[string]any{"error": err.Error(), "stage": "open"}
 	if errors.Is(err, transfer.ErrSkippable) {
 		d["reason"] = "source_not_found"
 	}

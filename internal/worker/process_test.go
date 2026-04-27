@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nineking424/imgsync/internal/jobs"
@@ -159,6 +160,12 @@ func TestProcessJob_RetryableTransportError_BackoffPending(t *testing.T) {
 	require.Equal(t, "pending", status)
 	require.Equal(t, 1, attempts)
 	mustEvent(t, pool, job.ID, "fail")
+
+	var nextRunAt time.Time
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT next_run_at FROM transfer_jobs WHERE id=$1`, job.ID,
+	).Scan(&nextRunAt))
+	require.True(t, nextRunAt.After(time.Now()), "next_run_at must be bumped into the future for retryable failures, got %v", nextRunAt)
 }
 
 func TestProcessJob_RetryableHitsMaxAttempts_TransitionsToDead(t *testing.T) {
