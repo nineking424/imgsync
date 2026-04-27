@@ -300,3 +300,82 @@ func repoRoot(t *testing.T) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// ─── F5 helpers ───────────────────────────────────────────────────────────
+
+func (e *kindEnv) listPods(t *testing.T, ctx context.Context) []string {
+	t.Helper()
+	out, err := exec.CommandContext(ctx, "kubectl", "-n", namespace,
+		"get", "pods", "-l", "app.kubernetes.io/name=imgsync",
+		"-o", "jsonpath={.items[*].metadata.name}").Output()
+	if err != nil {
+		t.Fatalf("listPods: %v", err)
+	}
+	names := strings.Fields(strings.TrimSpace(string(out)))
+	return names
+}
+
+// killOnePod deletes a single worker pod (forced) to simulate mid-flight crash.
+// Returns the name of the pod that was killed.
+func (e *kindEnv) killOnePod(t *testing.T, ctx context.Context) string {
+	t.Helper()
+	pods := e.listPods(t, ctx)
+	if len(pods) == 0 {
+		t.Fatal("killOnePod: no worker pods running")
+	}
+	target := pods[0]
+	if err := runCmd(ctx, repoRoot(t), "kubectl", "-n", namespace,
+		"delete", "pod", target, "--grace-period=0", "--force"); err != nil {
+		t.Fatalf("kubectl delete pod %s: %v", target, err)
+	}
+	return target
+}
+
+// waitForLeasedJob polls until at least one job is in 'leased' status.
+// Used to time the kill so it lands during active work.
+// Note: status enum has no 'processing'; use 'leased' (sweeper sets back to 'pending').
+func (e *kindEnv) waitForLeasedJob(t *testing.T, ctx context.Context, budget time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		if e.countByStatus(t, ctx, "leased") > 0 { // status enum: pending|leased|succeeded|skipped|dead
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("no job entered 'leased' within %v", budget)
+}
+
+// inspectSweeperRecovery returns counts of jobs that have an 'expire' event
+// and ended in 'succeeded' with attempts==0 (the C2 invariant at cluster level).
+func (e *kindEnv) inspectSweeperRecovery(t *testing.T, ctx context.Context) (recovered int) {
+	t.Helper()
+	row := e.pool.QueryRow(ctx, `
+SELECT count(*) FROM transfer_jobs j
+WHERE j.status='succeeded'
+  AND j.attempts=0
+  AND EXISTS (
+    SELECT 1 FROM transfer_events e
+     WHERE e.trace_id=j.trace_id AND e.job_id=j.id AND e.status='expire')
+`)
+	if err := row.Scan(&recovered); err != nil {
+		t.Fatalf("inspectSweeperRecovery: %v", err)
+	}
+	return recovered
+}
+
+func (e *kindEnv) helmRollback(t *testing.T, ctx context.Context) {
+	t.Helper()
+	if err := runCmd(ctx, repoRoot(t), "helm",
+		"-n", namespace, "rollback", releaseName, "--wait", "--timeout", "3m"); err != nil {
+		t.Fatalf("helm rollback: %v", err)
+	}
+}
+
+func (e *kindEnv) helmUninstall(t *testing.T, ctx context.Context) {
+	t.Helper()
+	if err := runCmd(ctx, repoRoot(t), "helm",
+		"-n", namespace, "uninstall", releaseName, "--wait", "--timeout", "2m"); err != nil {
+		t.Fatalf("helm uninstall: %v", err)
+	}
+}
