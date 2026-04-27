@@ -1,4 +1,4 @@
-.PHONY: build test lint streaming-check tidy
+.PHONY: build test lint streaming-check tidy ci
 
 build:
 	go build -o bin/imgsync ./cmd/imgsync
