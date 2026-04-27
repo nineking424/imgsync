@@ -14,8 +14,10 @@ for d in "${DIRS[@]}"; do
   if [[ ! -d "$d" ]]; then
     continue
   fi
-  matches=$(grep -RnE '\b(io|ioutil)\.ReadAll\b' "$d" \
-              --include='*.go' --exclude='*_test.go' || true)
+  matches=$(grep -RnE '\b(io|ioutil)\.ReadAll\b|bytes\.NewBuffer\b.*\bbody\b' "$d" \
+              --include='*.go' --exclude='*_test.go' \
+              | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' \
+              || true)
   if [[ -n "$matches" ]]; then
     echo "$matches"
     violations=$((violations + 1))
@@ -24,7 +26,7 @@ done
 
 if (( violations > 0 )); then
   echo ""
-  echo "FAIL: io.ReadAll detected in streaming hot path. Use io.Copy or io.Reader chains instead." >&2
+  echo "FAIL: streaming hot path violation (io.ReadAll or bytes.NewBuffer(...body...))." >&2
   exit 1
 fi
-echo "OK: no io.ReadAll in streaming hot paths"
+echo "OK: no io.ReadAll or bytes.NewBuffer(body) buffering in streaming hot paths"

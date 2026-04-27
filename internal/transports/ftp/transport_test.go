@@ -82,6 +82,10 @@ func TestFTPTransport_Send_BodyError_NoFinalAtDst(t *testing.T) {
 
 	_, statErr := os.Stat(filepath.Join(srv.RootDir, "fail.bin"))
 	require.True(t, errors.Is(statErr, os.ErrNotExist), "final dst must not exist after body error")
+
+	_, tmpStatErr := os.Stat(filepath.Join(srv.RootDir, "fail.bin.imgsync.tmp"))
+	require.True(t, errors.Is(tmpStatErr, os.ErrNotExist),
+		"tmp file must not be left behind after body error, got: %v", tmpStatErr)
 }
 
 type errReader struct{}

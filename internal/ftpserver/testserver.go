@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"path/filepath"
+	"path"
 	"testing"
 
 	ftplib "github.com/fclairamb/ftpserverlib"
@@ -43,13 +43,12 @@ func Start(t *testing.T) *Server {
 
 	// Listen() must be called before Serve() to initialize the internal listener.
 	if err = srv.Listen(); err != nil {
-		t.Fatalf("ftpserver: listen: %v", err)
+		_ = listener.Close()
+		t.Fatalf("ftpserver: srv.Listen: %v", err)
 	}
 
 	go func() {
-		if serveErr := srv.Serve(); serveErr != nil && !errors.Is(serveErr, net.ErrClosed) {
-			t.Logf("ftpserver: serve exited: %v", serveErr)
-		}
+		_ = srv.Serve()
 	}()
 
 	t.Cleanup(func() { _ = srv.Stop() })
@@ -105,5 +104,5 @@ type clientDriver struct {
 
 // AbsPath cleans and returns an absolute path relative to the virtual root.
 func (c *clientDriver) AbsPath(p string) string {
-	return filepath.Clean("/" + p)
+	return path.Clean("/" + p)
 }

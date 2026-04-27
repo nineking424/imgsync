@@ -44,7 +44,11 @@ func (t *Transport) Send(
 	conn := pc.Conn()
 
 	if dir := path.Dir(finalPath); dir != "/" && dir != "." && dir != "" {
-		_ = conn.MakeDir(dir) // best-effort; existing dir is OK
+		// Best-effort, single-level only. Pre-existing dirs return an error
+		// we ignore. Multi-level paths require all parents to already exist;
+		// recursive MakeDir would need walking path components and is not
+		// worth it for v1 (operators provision target dirs out-of-band).
+		_ = conn.MakeDir(dir)
 	}
 
 	hasher := sha256.New()
@@ -52,6 +56,8 @@ func (t *Transport) Send(
 	tee := io.TeeReader(body, cw)
 
 	if err := conn.Stor(strings.TrimPrefix(tmpPath, "/"), tee); err != nil {
+		// Best-effort: clean up partial tmp before releasing the broken conn.
+		_ = conn.Delete(strings.TrimPrefix(tmpPath, "/"))
 		pc.Release(true)
 		return 0, "", fmt.Errorf("ftp transport: stor %s: %w", tmpPath, err)
 	}
