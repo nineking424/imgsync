@@ -93,9 +93,20 @@ func isNotFound(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	// jlaffaye/ftp surfaces server reply codes in the error string. 550 is the
-	// classic "file unavailable / not found" code. Match also "no such".
-	return strings.Contains(msg, "550") ||
-		strings.Contains(msg, "no such file") ||
-		strings.Contains(msg, "not found")
+	// Explicit missing-file phrases are always skippable regardless of code.
+	missing := strings.Contains(msg, "no such file") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "file unavailable") ||
+		strings.Contains(msg, "does not exist")
+	// 550 is the FTP umbrella for "file unavailable / action not taken" but is
+	// also used for permission errors. Accept bare 550s only when no permission
+	// keyword is present; 550 Permission/Access-denied falls through to the raw
+	// error so the worker can treat it as a misconfiguration.
+	has550 := strings.Contains(msg, "550")
+	perm := strings.Contains(msg, "permission") || strings.Contains(msg, "access denied")
+	return missing || (has550 && !perm)
 }
+
+// IsNotFoundForTest is exposed for unit testing the not-found classifier.
+// Do not use in production paths.
+func IsNotFoundForTest(err error) bool { return isNotFound(err) }

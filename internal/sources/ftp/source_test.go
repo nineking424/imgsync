@@ -87,3 +87,25 @@ func TestFTPSource_BadURIScheme_ReturnsErrPermanent(t *testing.T) {
 	require.True(t, errors.Is(err, transfer.ErrPermanent),
 		"non-ftp scheme must be ErrPermanent, got %v", err)
 }
+
+func TestFTPSource_isNotFound_NarrowsOn550Permission(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  string
+		want bool
+	}{
+		{"missing-no-such-file", "550 No such file or directory", true},
+		{"missing-not-found", "550 file not found", true},
+		{"missing-bare-550", "550 Requested action not taken", true},
+		{"permission-denied", "550 Permission denied", false},
+		{"access-denied", "550 Access denied", false},
+		{"file-unavailable", "550 File unavailable", true},
+		{"non-550-permission", "530 Login incorrect", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := srcftp.IsNotFoundForTest(errors.New(tc.msg))
+			require.Equal(t, tc.want, got, "msg=%q", tc.msg)
+		})
+	}
+}
