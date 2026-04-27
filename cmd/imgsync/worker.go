@@ -96,6 +96,9 @@ func envInt(key string, def int) int {
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"imgsync worker: warning: %s=%q is not a valid integer, using default %d\n",
+			key, v, def)
 		return def
 	}
 	return n

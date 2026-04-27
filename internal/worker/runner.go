@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -57,13 +59,23 @@ func (r *Runner) Run(ctx context.Context) error {
 
 func (r *Runner) loop(ctx context.Context, idx int) {
 	lockedBy := fmt.Sprintf("%s-w%d", r.PodName, idx)
+	defer func() {
+		if rec := recover(); rec != nil {
+			fmt.Fprintf(os.Stderr,
+				"imgsync worker: panic in worker %d (%s): %v\n%s\n",
+				idx, lockedBy, rec, debug.Stack())
+		}
+	}()
 	for {
 		if err := ctx.Err(); err != nil {
 			return
 		}
 		job, err := LeaseJob(ctx, r.Pool, lockedBy)
 		if err != nil {
-			// Transient DB error: short sleep and retry.
+			// Transient DB error: log and short sleep before retry.
+			fmt.Fprintf(os.Stderr,
+				"imgsync worker: lease error (worker %d, %s): %v\n",
+				idx, lockedBy, err)
 			select {
 			case <-ctx.Done():
 				return

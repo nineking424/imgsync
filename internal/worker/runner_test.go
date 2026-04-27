@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -46,7 +47,16 @@ func TestRunner_DrainsQueue(t *testing.T) {
 	var processed int64
 	r.OnFinish = func(_ *worker.Job) { atomic.AddInt64(&processed, 1) }
 
-	go func() { _ = r.Run(ctx) }()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = r.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		wg.Wait()
+	})
 
 	require.Eventually(t, func() bool {
 		var pending int
@@ -87,7 +97,16 @@ func TestRunner_UnknownProtocol_RetriesUntilDead(t *testing.T) {
 			return tlocalfs.NewTransport(), nil
 		},
 	}
-	go func() { _ = r.Run(ctx) }()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = r.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		wg.Wait()
+	})
 
 	require.Eventually(t, func() bool {
 		var status string
