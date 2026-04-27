@@ -113,7 +113,7 @@ func newWorkerCmd() *cobra.Command {
 				})
 			}()
 
-			r.OnFinish = func(_ *worker.Job) { status.OnLeaseAttempt(true) }
+			r.OnLeaseAttempt = status.OnLeaseAttempt
 
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"imgsync worker starting: pod=%s workers=%d\n", podName, workers)

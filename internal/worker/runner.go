@@ -30,7 +30,11 @@ type Runner struct {
 	IdleBackoff  *backoff.Idle
 	SourceFor    func(protocol string) (SourceLike, error)
 	TransportFor func(protocol string) (TransportLike, error)
-	OnFinish     func(*Job) // optional, test hook
+	OnFinish func(*Job) // optional, test hook
+	// OnLeaseAttempt fires after every LeaseJob call. success=true means a
+	// row was acquired and dispatched; success=false means empty queue or
+	// transient DB error. Optional; nil-safe.
+	OnLeaseAttempt func(success bool)
 }
 
 // Run blocks until ctx is cancelled.
@@ -76,14 +80,23 @@ func (r *Runner) loop(ctx context.Context, idx int) {
 			fmt.Fprintf(os.Stderr,
 				"imgsync worker: lease error (worker %d, %s): %v\n",
 				idx, lockedBy, err)
+			if r.OnLeaseAttempt != nil {
+				r.OnLeaseAttempt(false)
+			}
 			r.IdleBackoff.WaitOnce(ctx)
 			continue
 		}
 		if job == nil {
 			// TODO(F2): DB error and empty-queue currently share the same backoff schedule;
 			// split if transient DB errors become a real incident source.
+			if r.OnLeaseAttempt != nil {
+				r.OnLeaseAttempt(false)
+			}
 			r.IdleBackoff.WaitOnce(ctx)
 			continue
+		}
+		if r.OnLeaseAttempt != nil {
+			r.OnLeaseAttempt(true)
 		}
 		r.IdleBackoff.WakeAll()
 

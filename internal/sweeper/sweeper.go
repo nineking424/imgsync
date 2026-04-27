@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,6 +102,13 @@ VALUES ($1,$2,'expire','{"reason":"lease_expired"}'::JSONB)`,
 // cannot hold pg_try_advisory_xact_lock indefinitely and jam every other
 // pod's sweeper.
 func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
+	defer func() {
+		if rec := recover(); rec != nil {
+			fmt.Fprintf(os.Stderr,
+				"imgsync sweeper: panic in Run: %v\n%s\n",
+				rec, debug.Stack())
+		}
+	}()
 	if cfg.Interval <= 0 {
 		cfg.Interval = 30 * time.Second
 	}
