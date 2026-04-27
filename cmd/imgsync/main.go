@@ -1,20 +1,29 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	root := &cobra.Command{
 		Use:           "imgsync",
 		Short:         "imgsync: file transfer queue (Go + PostgreSQL)",
-		SilenceErrors: true,
 		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
-	if err := root.Execute(); err != nil {
+	root.AddCommand(newMigrateCmd())
+	root.AddCommand(newEnqueueCmd())
+
+	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
