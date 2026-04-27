@@ -18,6 +18,10 @@ import (
 type Config struct {
 	Threshold time.Duration // lease age beyond which to recover; default 5m
 	Interval  time.Duration // loop interval; default 30s
+
+	// OnCycle is called after each successful Sweep cycle, regardless of how
+	// many rows were recovered. Used by /healthz to report last_sweep_ts.
+	OnCycle func()
 }
 
 const sweeperLockKey = "imgsync_sweeper"
@@ -123,6 +127,8 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "sweeper: cycle error: %v\n", err)
+		} else if cfg.OnCycle != nil {
+			cfg.OnCycle()
 		}
 	}
 }
