@@ -28,7 +28,7 @@ type Idle struct {
 	cfg Config
 
 	mu      sync.Mutex
-	nominal time.Duration  // current scheduled delay (no jitter)
+	nominal time.Duration   // current scheduled delay (no jitter)
 	wakers  []chan struct{} // one per parked goroutine
 	rng     *rand.Rand
 }

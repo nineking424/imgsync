@@ -12,8 +12,8 @@ import (
 
 	"github.com/nineking424/imgsync/internal/ftpserver"
 	srcftp "github.com/nineking424/imgsync/internal/sources/ftp"
-	pftp "github.com/nineking424/imgsync/internal/transports/ftp"
 	"github.com/nineking424/imgsync/internal/transfer"
+	pftp "github.com/nineking424/imgsync/internal/transports/ftp"
 	"github.com/stretchr/testify/require"
 )
 

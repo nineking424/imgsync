@@ -30,7 +30,7 @@ type Runner struct {
 	IdleBackoff  *backoff.Idle
 	SourceFor    func(protocol string) (SourceLike, error)
 	TransportFor func(protocol string) (TransportLike, error)
-	OnFinish func(*Job) // optional, test hook
+	OnFinish     func(*Job) // optional, test hook
 	// OnLeaseAttempt fires after every LeaseJob call. success=true means a
 	// row was acquired and dispatched; success=false means empty queue or
 	// transient DB error. Optional; nil-safe.

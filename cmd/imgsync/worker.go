@@ -72,7 +72,7 @@ func newWorkerCmd() *cobra.Command {
 				Workers:     workers,
 				PodName:     podName,
 				IdleBackoff: idle,
-				SourceFor:   func(proto string) (worker.SourceLike, error) {
+				SourceFor: func(proto string) (worker.SourceLike, error) {
 					switch proto {
 					case "localfs":
 						return localSource, nil
