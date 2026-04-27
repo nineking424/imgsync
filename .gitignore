@@ -1,0 +1,13 @@
+# Worktrees
+.worktrees/
+
+/imgsync
+/bin/
+/dist/
+*.test
+*.out
+.env
+.envrc
+.idea/
+.vscode/
+.DS_Store
