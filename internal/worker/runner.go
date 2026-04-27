@@ -7,9 +7,9 @@ import (
 	"os"
 	"runtime/debug"
 	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/transfer"
 )
 
@@ -27,7 +27,7 @@ type Runner struct {
 	Pool         *pgxpool.Pool
 	Workers      int
 	PodName      string
-	IdleSleep    time.Duration
+	IdleBackoff  *backoff.Idle
 	SourceFor    func(protocol string) (SourceLike, error)
 	TransportFor func(protocol string) (TransportLike, error)
 	OnFinish     func(*Job) // optional, test hook
@@ -38,8 +38,8 @@ func (r *Runner) Run(ctx context.Context) error {
 	if r.Workers <= 0 {
 		r.Workers = 4
 	}
-	if r.IdleSleep <= 0 {
-		r.IdleSleep = 1 * time.Second
+	if r.IdleBackoff == nil {
+		r.IdleBackoff = backoff.NewIdle(backoff.Config{})
 	}
 	if r.PodName == "" {
 		r.PodName = "imgsync-worker"
@@ -76,21 +76,14 @@ func (r *Runner) loop(ctx context.Context, idx int) {
 			fmt.Fprintf(os.Stderr,
 				"imgsync worker: lease error (worker %d, %s): %v\n",
 				idx, lockedBy, err)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(r.IdleSleep):
-				continue
-			}
+			r.IdleBackoff.WaitOnce(ctx)
+			continue
 		}
 		if job == nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(r.IdleSleep):
-				continue
-			}
+			r.IdleBackoff.WaitOnce(ctx)
+			continue
 		}
+		r.IdleBackoff.WakeAll()
 
 		src, err := r.SourceFor(job.SrcProtocol)
 		if err != nil {

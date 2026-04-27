@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/db"
 	srcftp "github.com/nineking424/imgsync/internal/sources/ftp"
 	"github.com/nineking424/imgsync/internal/sources/localfs"
@@ -56,12 +57,17 @@ func newWorkerCmd() *cobra.Command {
 			ftpSrc := srcftp.NewSource(ftpPool)
 			ftpTr := pftp.NewTransport(ftpPool)
 
+			idle := backoff.NewIdle(backoff.Config{
+				BaseDelay: 50 * time.Millisecond,
+				MaxDelay:  1 * time.Second,
+			})
+
 			r := &worker.Runner{
-				Pool:      pool,
-				Workers:   workers,
-				PodName:   podName,
-				IdleSleep: 1 * time.Second,
-				SourceFor: func(proto string) (worker.SourceLike, error) {
+				Pool:        pool,
+				Workers:     workers,
+				PodName:     podName,
+				IdleBackoff: idle,
+				SourceFor:   func(proto string) (worker.SourceLike, error) {
 					switch proto {
 					case "localfs":
 						return localSource, nil
