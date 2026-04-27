@@ -35,3 +35,19 @@ docker-test: ## Run the Dockerfile contract checks
 .PHONY: docker-run-help
 docker-run-help: docker-build ## Smoke test the built image
 	docker run --rm imgsync:dev --help
+
+.PHONY: dev-up
+dev-up: docker-build ## Stand up the dev compose stack
+	docker compose up -d
+
+.PHONY: dev-down
+dev-down: ## Tear down the dev compose stack
+	docker compose down -v
+
+.PHONY: dev-seed
+dev-seed: ## Enqueue 10 smoke-test jobs into the dev stack
+	./scripts/dev-seed.sh
+
+.PHONY: dev-smoke
+dev-smoke: ## Run dev stack end-to-end smoke test (assumes dev-up + dev-seed already ran)
+	./scripts/dev-smoke-test.sh
