@@ -69,6 +69,12 @@ RETURNING id, trace_id`, threshold)
 		recoveredRows = append(recoveredRows, r)
 	}
 	rows.Close()
+	// rows.Next() returning false is ambiguous (EOF vs mid-stream error).
+	// Without rows.Err() a network/pgx failure would silently commit a
+	// partial recovery. Mirrors the pattern in internal/db/migrate.go.
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("sweeper: rows iteration: %w", err)
+	}
 
 	for _, r := range recoveredRows {
 		if _, err := tx.Exec(ctx, `
@@ -86,11 +92,15 @@ VALUES ($1,$2,'expire','{"reason":"lease_expired"}'::JSONB)`,
 	return len(recoveredRows), nil
 }
 
-// Run loops Sweep on cfg.Interval ticks until ctx is cancelled.
+// Run loops Sweep on cfg.Interval ticks until ctx is cancelled. Each cycle
+// gets its own derived timeout (2*Interval) so a wedged pgx connection
+// cannot hold pg_try_advisory_xact_lock indefinitely and jam every other
+// pod's sweeper.
 func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 	if cfg.Interval <= 0 {
 		cfg.Interval = 30 * time.Second
 	}
+	cycleTimeout := 2 * cfg.Interval
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 	for {
@@ -99,9 +109,18 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 			return ctx.Err()
 		case <-ticker.C:
 		}
-		if _, err := Sweep(ctx, pool, cfg); err != nil {
+		sweepCtx, cancel := context.WithTimeout(ctx, cycleTimeout)
+		_, err := Sweep(sweepCtx, pool, cfg)
+		cancel()
+		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
+				// Disambiguate parent ctx cancel vs per-cycle timeout: parent
+				// done → return; cycle deadline only → log and try next tick.
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				fmt.Fprintf(os.Stderr, "sweeper: cycle timeout (%s): %v\n", cycleTimeout, err)
+				continue
 			}
 			fmt.Fprintf(os.Stderr, "sweeper: cycle error: %v\n", err)
 		}

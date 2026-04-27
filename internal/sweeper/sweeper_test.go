@@ -140,13 +140,16 @@ func TestSweep_DoesNotBumpAttempts(t *testing.T) {
 
 func TestRun_LoopsUntilContextCancelled(t *testing.T) {
 	pool := mustDB(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	// Generous budget vs Interval: gives ~20 tick windows so a slow CI
+	// runner (testcontainers cold-start, GC pause) can't push the first
+	// tick past the deadline and flake the final 'pending' assertion.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	stampStale(t, pool, "looping-1", 6)
 	err := sweeper.Run(ctx, pool, sweeper.Config{
 		Threshold: 5 * time.Minute,
-		Interval:  60 * time.Millisecond,
+		Interval:  50 * time.Millisecond,
 	})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
