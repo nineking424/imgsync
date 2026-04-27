@@ -13,7 +13,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25'
           cache: true
 
       - name: Streaming guard
@@ -26,3 +26,28 @@ jobs:
 
       - name: Test
         run: go test ./... -race -count=1
+
+  e2e:
+    if: contains(github.event.pull_request.labels.*.name, 'e2e')
+    needs: [lint-and-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - uses: helm/kind-action@v1
+        with:
+          version: v0.31.0
+          install_only: true
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+      - name: Run C7 throughput E2E
+        run: make e2e-throughput
+      - name: Run F5 dirty-state E2E
+        run: make e2e-dirty-state
+        if: success() || failure()  # always run F5, even if C7 fails, to surface both
+      - name: Cleanup
+        if: always()
+        run: make e2e-down
