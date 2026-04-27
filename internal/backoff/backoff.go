@@ -103,6 +103,13 @@ func (i *Idle) CurrentNominalDelay() time.Duration {
 	return i.nominal
 }
 
+// NumParked returns the count of goroutines currently parked in WaitOnce. Test helper.
+func (i *Idle) NumParked() int {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return len(i.wakers)
+}
+
 // advance must be called with mu held.
 func (i *Idle) advance() {
 	switch i.nominal {

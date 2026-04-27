@@ -54,8 +54,13 @@ func TestIdle_WakeAll_ResetsAndUnblocksSiblings(t *testing.T) {
 		}(i)
 	}
 
-	// Let goroutines arm their timers, then wake.
-	time.Sleep(20 * time.Millisecond)
+	// Wait deterministically until all 4 goroutines are parked. Without this barrier
+	// the 20ms sleep was racy: a late goroutine could miss WakeAll, observe the
+	// already-reset nominal=BaseDelay (200ms), and sleep ~200ms — failing the
+	// <100ms assertion below.
+	require.Eventually(t, func() bool {
+		return b.NumParked() == 4
+	}, time.Second, time.Millisecond)
 	b.WakeAll()
 
 	wg.Wait()

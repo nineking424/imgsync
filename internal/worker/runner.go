@@ -80,6 +80,8 @@ func (r *Runner) loop(ctx context.Context, idx int) {
 			continue
 		}
 		if job == nil {
+			// TODO(F2): DB error and empty-queue currently share the same backoff schedule;
+			// split if transient DB errors become a real incident source.
 			r.IdleBackoff.WaitOnce(ctx)
 			continue
 		}
