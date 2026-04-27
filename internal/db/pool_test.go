@@ -44,8 +44,10 @@ func TestNewPool_AppliesConfig(t *testing.T) {
 	require.Equal(t, 1, one)
 }
 
-func TestNewPool_BadDSN_ReturnsError(t *testing.T) {
+func TestNewPool_UnreachableHost_ReturnsError(t *testing.T) {
 	_, err := db.NewPool(context.Background(), db.PoolConfig{
+		// DSN parses cleanly; port 1 is never bound, so Ping fails fast.
+		// connect_timeout=1 caps the dial at 1s in case the host blackholes.
 		DSN:      "postgres://nope:nope@127.0.0.1:1/nope?sslmode=disable&connect_timeout=1",
 		MaxConns: 1,
 	})

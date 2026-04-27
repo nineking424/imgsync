@@ -8,7 +8,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PoolConfig is the env-derived configuration for a pgxpool.Pool.
+// PoolConfig holds configuration for a pgxpool.Pool.
+//
+// Zero values mean "use the pgxpool library default": MaxConns defaults to
+// max(4, NumCPU), MinConns to 0, MaxConnLifetime to 1h, MaxConnIdleTime
+// to 30m, HealthCheckPeriod to 1m. Callers populate this struct (typically
+// from environment variables); the env loader lives outside this package.
 type PoolConfig struct {
 	DSN               string
 	MaxConns          int32
@@ -45,7 +50,7 @@ func NewPool(ctx context.Context, cfg PoolConfig) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("open pool: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
+		pool.Close() // stops background health-check goroutines before returning
 		return nil, fmt.Errorf("ping: %w", err)
 	}
 	return pool, nil
