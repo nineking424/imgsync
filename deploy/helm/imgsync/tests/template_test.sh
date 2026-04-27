@@ -46,4 +46,37 @@ grep -q "runAsNonRoot: true"   "$TMP/t1.yaml" || { echo "FAIL: runAsNonRoot not 
 grep -q "runAsUser: 65532"     "$TMP/t1.yaml" || { echo "FAIL: runAsUser not 65532"; exit 1; }
 grep -q "readOnlyRootFilesystem: true" "$TMP/t1.yaml" || { echo "FAIL: readOnlyRootFilesystem missing"; exit 1; }
 
+# ─── Test 6: migration Job hook annotations ─────────────────────────
+echo "==> migrate Job hook annotations"
+helm template t3 "$CHART" > "$TMP/t3.yaml"
+
+grep -q 'kind: Job'                                              "$TMP/t3.yaml" || { echo "FAIL: no Job rendered"; exit 1; }
+grep -q '"helm.sh/hook": "pre-install,pre-upgrade"'              "$TMP/t3.yaml" || \
+  grep -q '"helm.sh/hook": pre-install,pre-upgrade'              "$TMP/t3.yaml" || \
+  { echo "FAIL: migrate Job missing pre-install,pre-upgrade hook"; exit 1; }
+grep -q 'before-hook-creation'                                    "$TMP/t3.yaml" || { echo "FAIL: migrate Job missing before-hook-creation policy"; exit 1; }
+grep -q 'hook-succeeded'                                          "$TMP/t3.yaml" || { echo "FAIL: migrate Job missing hook-succeeded cleanup"; exit 1; }
+
+# Migration Job MUST run as the same nonroot UID as the worker. Extract the
+# migrate-job manifest in isolation so a regression that flips this Job to
+# root can't slip past on Test 5's full-render grep.
+awk '/^# Source: imgsync\/templates\/migrate-job\.yaml/{p=1} p; p && /^---$/{exit}' \
+  "$TMP/t3.yaml" > "$TMP/t3-migrate-job.yaml"
+[ -s "$TMP/t3-migrate-job.yaml" ] || { echo "FAIL: could not isolate migrate-job manifest"; exit 1; }
+grep -q "runAsNonRoot: true"           "$TMP/t3-migrate-job.yaml" || { echo "FAIL: migrate Job runAsNonRoot not true"; exit 1; }
+grep -q "runAsUser: 65532"             "$TMP/t3-migrate-job.yaml" || { echo "FAIL: migrate Job runAsUser not 65532"; exit 1; }
+grep -q "readOnlyRootFilesystem: true" "$TMP/t3-migrate-job.yaml" || { echo "FAIL: migrate Job readOnlyRootFilesystem missing"; exit 1; }
+
+# Args must be migrate up — assert exact array form to avoid false positives
+# from quoted strings elsewhere in the render.
+grep -q 'args: \["migrate", "up"\]' "$TMP/t3-migrate-job.yaml" || { echo "FAIL: migrate Job args not [\"migrate\", \"up\"]"; exit 1; }
+
+# ─── Test 7: migrationJob.enabled=false suppresses the Job ──────────
+echo "==> migrationJob.enabled=false"
+helm template t4 "$CHART" --set migrationJob.enabled=false > "$TMP/t4.yaml"
+if grep -q '^kind: Job$' "$TMP/t4.yaml"; then
+  echo "FAIL: migrationJob.enabled=false did not suppress the Job"
+  exit 1
+fi
+
 echo "PASS: helm chart structural tests green"
