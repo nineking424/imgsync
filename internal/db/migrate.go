@@ -11,6 +11,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// migrationAdvisoryLockID is a project-stable int64 used to serialize
+// concurrent ApplyMigrations calls across pods. Session-level locks
+// release automatically on disconnect, so a crashed migrate leaves no
+// stranded lock. Value: ASCII bytes of "IMGSYNC" packed as int64.
+const migrationAdvisoryLockID int64 = 0x494d4753594e43
+
 // ApplyMigrations runs every *.up.sql under dir in lexical order, skipping
 // versions already recorded in schema_migrations. The first migration creates
 // schema_migrations itself, so a fresh DB starts empty.
@@ -33,8 +39,16 @@ func ApplyMigrations(ctx context.Context, dsn, dir string) error {
 	}
 	defer conn.Close(ctx)
 
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", migrationAdvisoryLockID); err != nil {
+		return fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+
 	applied := map[string]bool{}
-	if hasTable(ctx, conn, "schema_migrations") {
+	exists, err := hasTable(ctx, conn, "schema_migrations")
+	if err != nil {
+		return fmt.Errorf("check schema_migrations existence: %w", err)
+	}
+	if exists {
 		rows, err := conn.Query(ctx, `SELECT version FROM schema_migrations`)
 		if err != nil {
 			return fmt.Errorf("read schema_migrations: %w", err)
@@ -48,6 +62,9 @@ func ApplyMigrations(ctx context.Context, dsn, dir string) error {
 			applied[v] = true
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("read schema_migrations: %w", err)
+		}
 	}
 
 	for _, name := range files {
@@ -66,11 +83,11 @@ func ApplyMigrations(ctx context.Context, dsn, dir string) error {
 	return nil
 }
 
-func hasTable(ctx context.Context, conn *pgx.Conn, name string) bool {
+func hasTable(ctx context.Context, conn *pgx.Conn, name string) (bool, error) {
 	var exists bool
-	_ = conn.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name=$1)`,
+	err := conn.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)`,
 		name,
 	).Scan(&exists)
-	return exists
+	return exists, err
 }

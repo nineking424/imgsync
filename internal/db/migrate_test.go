@@ -69,12 +69,14 @@ func TestApplyMigrations_RunTwice_NoOp(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pgC.Terminate(ctx) })
-	dsn, _ := pgC.ConnectionString(ctx, "sslmode=disable")
+	dsn, err := pgC.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
 
 	require.NoError(t, db.ApplyMigrations(ctx, dsn, "../../migrations"))
 	require.NoError(t, db.ApplyMigrations(ctx, dsn, "../../migrations"))
 
-	conn, _ := pgx.Connect(ctx, dsn)
+	conn, err := pgx.Connect(ctx, dsn)
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close(ctx) })
 	var n int
 	require.NoError(t, conn.QueryRow(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&n))
