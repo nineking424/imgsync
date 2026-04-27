@@ -51,3 +51,17 @@ dev-seed: ## Enqueue 10 smoke-test jobs into the dev stack
 .PHONY: dev-smoke
 dev-smoke: ## Run dev stack end-to-end smoke test (assumes dev-up + dev-seed already ran)
 	./scripts/dev-smoke-test.sh
+
+HELM_CHART = deploy/helm/imgsync
+
+.PHONY: helm-lint
+helm-lint: ## Lint the Helm chart
+	helm lint $(HELM_CHART)
+
+.PHONY: helm-template
+helm-template: ## Render Helm chart with default values
+	helm template t $(HELM_CHART)
+
+.PHONY: helm-test
+helm-test: ## Run Helm chart structural tests
+	./$(HELM_CHART)/tests/template_test.sh
