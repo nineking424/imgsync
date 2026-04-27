@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var version = "dev"
+
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -17,6 +19,7 @@ func main() {
 	root := &cobra.Command{
 		Use:           "imgsync",
 		Short:         "imgsync: file transfer queue (Go + PostgreSQL)",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
