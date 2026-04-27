@@ -65,3 +65,19 @@ helm-template: ## Render Helm chart with default values
 .PHONY: helm-test
 helm-test: ## Run Helm chart structural tests
 	./$(HELM_CHART)/tests/template_test.sh
+
+.PHONY: e2e-up
+e2e-up: ## Bring up the kind+chart e2e environment
+	./scripts/e2e-up.sh
+
+.PHONY: e2e-down
+e2e-down: ## Tear down the e2e environment
+	./scripts/e2e-down.sh
+
+.PHONY: e2e-throughput
+e2e-throughput: ## Run C7 throughput E2E (kind cluster required)
+	IMGSYNC_E2E=1 go test -tags e2e -timeout 35m -v ./e2e/... -run TestC7_ThroughputScaleOut
+
+.PHONY: e2e-dirty-state
+e2e-dirty-state: ## Run F5 dirty-state recovery E2E (added in Task 6)
+	IMGSYNC_E2E=1 go test -tags e2e -timeout 30m -v ./e2e/... -run TestF5_DirtyStateRecovery

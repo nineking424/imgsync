@@ -1,0 +1,21 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: imgsync-e2e
+nodes:
+  - role: control-plane
+    extraMounts:
+      # Shared LocalFS volume — all worker pods will mount this via hostPath PV
+      - hostPath: /tmp/imgsync-e2e-localfs
+        containerPath: /srv/imgsync
+  - role: worker
+    extraMounts:
+      - hostPath: /tmp/imgsync-e2e-localfs
+        containerPath: /srv/imgsync
+  - role: worker
+    extraMounts:
+      - hostPath: /tmp/imgsync-e2e-localfs
+        containerPath: /srv/imgsync
+  - role: worker
+    extraMounts:
+      - hostPath: /tmp/imgsync-e2e-localfs
+        containerPath: /srv/imgsync
