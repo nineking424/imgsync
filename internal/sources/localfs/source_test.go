@@ -28,11 +28,11 @@ func TestSource_Open_StreamsFileAndReportsSize(t *testing.T) {
 	require.Equal(t, "hello world", string(got))
 }
 
-func TestSource_Open_Missing_ReturnsErrPermanent(t *testing.T) {
+func TestSource_Open_Missing_ReturnsErrSkippable(t *testing.T) {
 	s := localfs.NewSource()
 	_, _, err := s.Open(context.Background(), "/no/such/path/xyzzy")
 	require.Error(t, err)
-	require.ErrorIs(t, err, transfer.ErrPermanent)
+	require.ErrorIs(t, err, transfer.ErrSkippable)
 }
 
 func TestSource_Open_Directory_ReturnsErrPermanent(t *testing.T) {

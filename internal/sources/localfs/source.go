@@ -25,7 +25,7 @@ func (s *Source) Open(ctx context.Context, src string) (io.ReadCloser, int64, er
 	st, err := os.Stat(src)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, 0, fmt.Errorf("localfs: stat %s: %w", src, transfer.ErrPermanent)
+			return nil, 0, fmt.Errorf("localfs: stat %s: %w", src, transfer.ErrSkippable)
 		}
 		return nil, 0, fmt.Errorf("localfs: stat %s: %w", src, err)
 	}
