@@ -9,6 +9,7 @@ import (
 
 	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/db"
+	"github.com/nineking424/imgsync/internal/hostcap"
 	srcftp "github.com/nineking424/imgsync/internal/sources/ftp"
 	"github.com/nineking424/imgsync/internal/sources/localfs"
 	pftp "github.com/nineking424/imgsync/internal/transports/ftp"
@@ -55,7 +56,8 @@ func newWorkerCmd() *cobra.Command {
 			localSource := localfs.NewSource()
 			localTransport := tlocalfs.NewTransport()
 			ftpSrc := srcftp.NewSource(ftpPool)
-			ftpTr := pftp.NewTransport(ftpPool)
+			ftpRaw := pftp.NewTransport(ftpPool)
+			ftpTr := hostcap.Wrap(pool, ftpRaw, hostcap.Config{Cap: envInt("IMGSYNC_FTP_HOST_CAP", 8)})
 
 			idle := backoff.NewIdle(backoff.Config{
 				BaseDelay: 50 * time.Millisecond,
