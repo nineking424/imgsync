@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nineking424/imgsync/internal/db"
@@ -79,6 +80,45 @@ func TestLeaseJob_FutureNextRunAt_NotLeased(t *testing.T) {
 	j, err := worker.LeaseJob(ctx, pool, "worker-1")
 	require.NoError(t, err)
 	require.Nil(t, j, "future next_run_at must not be leased")
+}
+
+// TestLeaseJob_RowLockedByOtherTx_IsSkipped exercises the SKIP LOCKED contract
+// directly: a separate transaction holds id1 with FOR UPDATE; LeaseJob must
+// skip id1 and lease id2 instead. Without SKIP LOCKED the worker would block
+// on the held row and the bounded ctx would surface the regression.
+func TestLeaseJob_RowLockedByOtherTx_IsSkipped(t *testing.T) {
+	pool := mustDB(t)
+	ctx := context.Background()
+
+	id1, _, err := jobs.Enqueue(ctx, pool, jobs.EnqueueArgs{
+		TraceID: "t-locked", Src: "x", Dst: "y1",
+		SrcProtocol: "localfs", DstProtocol: "localfs",
+	})
+	require.NoError(t, err)
+	id2, _, err := jobs.Enqueue(ctx, pool, jobs.EnqueueArgs{
+		TraceID: "t-free", Src: "x", Dst: "y2",
+		SrcProtocol: "localfs", DstProtocol: "localfs",
+	})
+	require.NoError(t, err)
+
+	// Hold id1 in a separate tx with FOR UPDATE so SKIP LOCKED must skip it.
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	var heldID int64
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT id FROM transfer_jobs WHERE id=$1 FOR UPDATE`, id1).Scan(&heldID))
+	require.Equal(t, id1, heldID)
+
+	// Bounded ctx so a regression (missing SKIP LOCKED → blocked on id1) fails
+	// loudly instead of hanging the suite.
+	leaseCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	j, err := worker.LeaseJob(leaseCtx, pool, "worker-1")
+	require.NoError(t, err)
+	require.NotNil(t, j, "must lease the unlocked row, not block on the held one")
+	require.Equal(t, id2, j.ID, "must skip locked id1 and pick id2 — SKIP LOCKED contract violated")
 }
 
 func TestLeaseJob_ConcurrentLeases_DoNotCollide(t *testing.T) {
