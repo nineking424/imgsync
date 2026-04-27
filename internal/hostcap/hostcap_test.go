@@ -122,8 +122,11 @@ func TestHostCap_OverCapBlocksUntilRelease(t *testing.T) {
 		AcquireBackoff: 30 * time.Millisecond,
 	})
 
+	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			_, _, _ = hc.Send(context.Background(), "ftp://ftp.test.local/x", strings.NewReader("a"), 1)
 		}()
 	}
@@ -136,4 +139,5 @@ func TestHostCap_OverCapBlocksUntilRelease(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded, "third Send must block beyond cap")
 
 	close(rt.hold)
+	wg.Wait()
 }
