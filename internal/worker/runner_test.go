@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/jobs"
 	"github.com/nineking424/imgsync/internal/sources/localfs"
 	tlocalfs "github.com/nineking424/imgsync/internal/transports/localfs"
@@ -36,11 +37,11 @@ func TestRunner_DrainsQueue(t *testing.T) {
 	}
 
 	r := &worker.Runner{
-		Pool:        pool,
-		Workers:     2,
-		PodName:     "test-pod",
-		IdleSleep:   50 * time.Millisecond,
-		SourceFor:   func(_ string) (worker.SourceLike, error) { return localfs.NewSource(), nil },
+		Pool:         pool,
+		Workers:      2,
+		PodName:      "test-pod",
+		IdleBackoff:  backoff.NewIdle(backoff.Config{BaseDelay: 30 * time.Millisecond, MaxDelay: 100 * time.Millisecond}),
+		SourceFor:    func(_ string) (worker.SourceLike, error) { return localfs.NewSource(), nil },
 		TransportFor: func(_ string) (worker.TransportLike, error) { return tlocalfs.NewTransport(), nil },
 	}
 
@@ -83,10 +84,10 @@ func TestRunner_UnknownProtocol_RetriesUntilDead(t *testing.T) {
 	require.NoError(t, err)
 
 	r := &worker.Runner{
-		Pool:      pool,
-		Workers:   1,
-		PodName:   "test-pod",
-		IdleSleep: 50 * time.Millisecond,
+		Pool:        pool,
+		Workers:     1,
+		PodName:     "test-pod",
+		IdleBackoff: backoff.NewIdle(backoff.Config{BaseDelay: 30 * time.Millisecond, MaxDelay: 100 * time.Millisecond}),
 		SourceFor: func(p string) (worker.SourceLike, error) {
 			if p == "localfs" {
 				return localfs.NewSource(), nil

@@ -3,13 +3,18 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/db"
+	"github.com/nineking424/imgsync/internal/health"
+	"github.com/nineking424/imgsync/internal/hostcap"
 	srcftp "github.com/nineking424/imgsync/internal/sources/ftp"
 	"github.com/nineking424/imgsync/internal/sources/localfs"
+	"github.com/nineking424/imgsync/internal/sweeper"
 	pftp "github.com/nineking424/imgsync/internal/transports/ftp"
 	tlocalfs "github.com/nineking424/imgsync/internal/transports/localfs"
 	"github.com/nineking424/imgsync/internal/worker"
@@ -54,13 +59,19 @@ func newWorkerCmd() *cobra.Command {
 			localSource := localfs.NewSource()
 			localTransport := tlocalfs.NewTransport()
 			ftpSrc := srcftp.NewSource(ftpPool)
-			ftpTr := pftp.NewTransport(ftpPool)
+			ftpRaw := pftp.NewTransport(ftpPool)
+			ftpTr := hostcap.Wrap(pool, ftpRaw, hostcap.Config{Cap: envInt("IMGSYNC_FTP_HOST_CAP", 8)})
+
+			idle := backoff.NewIdle(backoff.Config{
+				BaseDelay: 50 * time.Millisecond,
+				MaxDelay:  1 * time.Second,
+			})
 
 			r := &worker.Runner{
-				Pool:      pool,
-				Workers:   workers,
-				PodName:   podName,
-				IdleSleep: 1 * time.Second,
+				Pool:        pool,
+				Workers:     workers,
+				PodName:     podName,
+				IdleBackoff: idle,
 				SourceFor: func(proto string) (worker.SourceLike, error) {
 					switch proto {
 					case "localfs":
@@ -80,6 +91,29 @@ func newWorkerCmd() *cobra.Command {
 					return nil, worker.ErrUnknownProtocol
 				},
 			}
+
+			status := health.NewStatus()
+			healthAddr := os.Getenv("IMGSYNC_HEALTH_ADDR")
+			if healthAddr == "" {
+				healthAddr = ":8080"
+			}
+			ln, err := net.Listen("tcp", healthAddr)
+			if err != nil {
+				return err
+			}
+			hs := health.NewServer(pool, status)
+			go func() { _ = hs.Serve(ln) }()
+			defer hs.Close()
+
+			go func() {
+				_ = sweeper.Run(ctx, pool, sweeper.Config{
+					Threshold: 5 * time.Minute,
+					Interval:  30 * time.Second,
+					OnCycle:   status.OnSweepCycle,
+				})
+			}()
+
+			r.OnLeaseAttempt = status.OnLeaseAttempt
 
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"imgsync worker starting: pod=%s workers=%d\n", podName, workers)
