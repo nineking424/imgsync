@@ -1,0 +1,117 @@
+replicaCount: 1
+
+image:
+  repository: imgsync
+  tag: ""           # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Pre-existing Secret with the postgres DSN.
+# Operator MUST create this Secret before installing the chart.
+# Example:
+#   kubectl create secret generic imgsync-dsn \
+#     --from-literal=dsn='postgres://user:pw@host:5432/imgsync?sslmode=require'
+dsnSecretRef:
+  name: imgsync-dsn
+  key: dsn
+
+# Optional: pre-existing Secret with FTP credentials.
+# If unset, FTP transports/sources will fail. Optional because some installs
+# only use LocalFS.
+ftpSecretRef:
+  name: ""          # e.g. "imgsync-ftp"
+  userKey: "user"
+  passwordKey: "password"
+
+# Worker runtime config (non-secret)
+worker:
+  workers: 4                  # goroutines per pod
+  idleSleepMin: "50ms"
+  idleSleepMax: "1s"
+  ftpHostMaxConns: 8          # cluster-wide cap per host (advisory lock)
+  ftpHostPoolMaxIdle: 5
+  ftpHostPoolIdleTTL: "5m"
+
+# Health & probes
+health:
+  port: 8080
+  livenessProbe:
+    httpGet:
+      path: /livez
+      port: health
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: health
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 2
+  startupProbe:
+    httpGet:
+      path: /readyz
+      port: health
+    periodSeconds: 2
+    failureThreshold: 30      # 60s grace
+
+# Pod-level
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 65532
+  runAsNonRoot: true
+  runAsUser: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# PodDisruptionBudget — only rendered when replicaCount >= 2
+pdb:
+  maxUnavailable: 1
+
+# Service — only exposes /healthz for monitoring; no app traffic
+service:
+  type: ClusterIP
+  port: 8080
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Migration Job (Task 4) — knobs surfaced here, used by migrate-job.yaml
+migrationJob:
+  enabled: true
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

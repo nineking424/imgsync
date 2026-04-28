@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: imgsync
+      POSTGRES_PASSWORD: imgsync
+      POSTGRES_DB: imgsync
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U imgsync -d imgsync"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  ftpd:
+    image: delfer/alpine-ftp-server:latest
+    environment:
+      USERS: "imgsync|imgsyncpw|/ftp/imgsync"
+      ADDRESS: "127.0.0.1"
+      MIN_PORT: "21100"
+      MAX_PORT: "21110"
+    ports:
+      - "21:21"
+      - "21100-21110:21100-21110"
+    volumes:
+      - ftpdata:/ftp/imgsync
+
+  imgsync-migrate:
+    image: imgsync:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      IMGSYNC_DSN: "postgres://imgsync:imgsync@postgres:5432/imgsync?sslmode=disable"
+    command: ["migrate", "up"]
+    restart: "no"
+
+  imgsync-worker:
+    image: imgsync:dev
+    depends_on:
+      imgsync-migrate:
+        condition: service_completed_successfully
+      ftpd:
+        condition: service_started
+    environment:
+      IMGSYNC_DSN: "postgres://imgsync:imgsync@postgres:5432/imgsync?sslmode=disable"
+      IMGSYNC_WORKERS: "2"
+      IMGSYNC_POD_NAME: "compose-worker"
+      IMGSYNC_FTP_USER: "imgsync"
+      IMGSYNC_FTP_PASSWORD: "imgsyncpw"
+      IMGSYNC_HEALTH_ADDR: ":8080"
+    command: ["worker"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - workerdata:/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  ftpdata:
+  workerdata:

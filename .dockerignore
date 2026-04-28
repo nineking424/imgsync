@@ -1,0 +1,33 @@
+# Build artifacts
+bin/
+dist/
+*.test
+*.out
+coverage.*
+
+# Editor/local
+.idea/
+.vscode/
+.DS_Store
+
+# VCS
+.git/
+.gitignore
+
+# CI / docs
+.github/
+docs/
+PRD.txt
+README.md
+
+# E2E / dev fixtures
+e2e/
+deploy/
+scripts/
+
+# Local Helm cache and temp artifacts
+*.tgz
+charts/
+
+# Test/dev data
+testdata/

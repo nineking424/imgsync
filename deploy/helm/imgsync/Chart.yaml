@@ -1,0 +1,15 @@
+apiVersion: v2
+name: imgsync
+description: imgsync — file-transfer worker queue (replaces NiFi)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - file-transfer
+  - queue
+  - postgres
+  - ftp
+maintainers:
+  - name: nineking424
+sources:
+  - https://github.com/nineking424/imgsync
