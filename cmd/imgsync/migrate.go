@@ -27,6 +27,10 @@ func newMigrateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&dir, "dir", "/etc/imgsync/migrations", "directory containing *.up.sql files")
+	defaultDir := os.Getenv("IMGSYNC_MIGRATIONS_DIR")
+	if defaultDir == "" {
+		defaultDir = "/etc/imgsync/migrations"
+	}
+	cmd.Flags().StringVar(&dir, "dir", defaultDir, "directory containing *.up.sql files")
 	return cmd
 }

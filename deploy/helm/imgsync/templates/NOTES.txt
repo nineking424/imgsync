@@ -1,0 +1,29 @@
+imgsync {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}".
+
+  Replicas:    {{ .Values.replicaCount }}
+  Image:       {{ include "imgsync.image" . }}
+  DSN secret:  {{ .Values.dsnSecretRef.name }} (key: {{ .Values.dsnSecretRef.key }})
+{{- if .Values.ftpSecretRef.name }}
+  FTP secret:  {{ .Values.ftpSecretRef.name }}
+{{- end }}
+
+To check worker health:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward \
+    svc/{{ include "imgsync.fullname" . }} 8080:{{ .Values.service.port }}
+  curl localhost:8080/healthz | jq
+
+To enqueue a job (operator one-liner):
+
+  kubectl --namespace {{ .Release.Namespace }} run --rm -it imgsync-cli \
+    --image={{ include "imgsync.image" . }} --restart=Never \
+    --env=IMGSYNC_DSN=<dsn> -- \
+    enqueue --trace-id=<id> --src=<url> --dst=<url> \
+            --src-protocol=<proto> --dst-protocol=<proto>
+
+To audit a single job (one-line SQL):
+
+  SELECT j.id, j.status, j.attempts, e.status AS event, e.ts, e.detail
+    FROM transfer_jobs j LEFT JOIN transfer_events e ON j.id = e.job_id
+   WHERE j.trace_id='<id>' AND j.dst='<url>'
+   ORDER BY e.ts;
