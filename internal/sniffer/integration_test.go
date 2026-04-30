@@ -98,3 +98,77 @@ func TestS1_CrashRecoveryNoLossNoDup(t *testing.T) {
 	require.Equal(t, 100, distinct, "must enqueue all 100 rows")
 	require.Equal(t, 100, total, "must not duplicate any row across the two runs")
 }
+
+// S2: 10 rows with identical updated_at, batch_size=3 forces 4 batches.
+// All 10 enqueued exactly once; sniffer_state.last_run_pk == "10".
+func TestS2_TieBreakBatchCorrectness(t *testing.T) {
+	ctx := context.Background()
+	srcPool := setupSourceDB(t)
+	imgPool := setupImgsyncDBWithTransferJobs(t)
+
+	ts := time.Now().UTC().Add(-time.Hour)
+	for i := 1; i <= 10; i++ {
+		_, err := srcPool.Exec(ctx, `INSERT INTO images VALUES ($1, $2, 'p')`, i, ts)
+		require.NoError(t, err)
+	}
+
+	s := sniffer.New(sniffer.Config{
+		SourceID:    "src",
+		Query:       sniffer.Query{Table: "images", PKColumn: "id", TSColumn: "updated_at", ExtraColumns: []string{"file_path"}, BatchSize: 3},
+		Dst:         sniffer.DstTemplate{Pattern: "/in/{{.id}}"},
+		SrcPattern:  "src://{{.id}}",
+		SrcProtocol: "fs",
+		DstProtocol: "fs",
+		ImgsyncPool: imgPool, SourcePool: srcPool,
+	})
+
+	for i := 0; i < 5; i++ {
+		_, err := s.RunOnce(ctx)
+		require.NoError(t, err)
+	}
+
+	var n int
+	require.NoError(t, imgPool.QueryRow(ctx, `SELECT COUNT(*) FROM transfer_jobs`).Scan(&n))
+	require.Equal(t, 10, n, "expected 10 rows")
+
+	st, err := sniffer.NewStateRepo(imgPool).Load(ctx, "src")
+	require.NoError(t, err)
+	require.Equal(t, "10", st.LastRunPK, "last_run_pk must be 10")
+}
+
+// S3: source DB query takes longer than the per-query timeout.
+// Sniffer's RunOnce returns an error (timeout) and watermark stays unchanged.
+func TestS3_QueryTimeoutLeavesWatermarkUnchanged(t *testing.T) {
+	srcPool := setupSourceDB(t)
+	imgPool := setupImgsyncDBWithTransferJobs(t)
+
+	ts := time.Now().UTC().Add(-time.Hour)
+	_, err := srcPool.Exec(context.Background(), `INSERT INTO images VALUES (1, $1, 'p')`, ts)
+	require.NoError(t, err)
+
+	_, err = srcPool.Exec(context.Background(), `
+		CREATE OR REPLACE VIEW images_slow AS
+		SELECT i.id, i.updated_at, i.file_path
+		FROM images i CROSS JOIN (SELECT pg_sleep(2)) AS _delay`)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	s := sniffer.New(sniffer.Config{
+		SourceID:    "src",
+		Query:       sniffer.Query{Table: "images_slow", PKColumn: "id", TSColumn: "updated_at", ExtraColumns: []string{"file_path"}, BatchSize: 10},
+		Dst:         sniffer.DstTemplate{Pattern: "/in/{{.id}}"},
+		SrcPattern:  "src://{{.id}}",
+		SrcProtocol: "fs",
+		DstProtocol: "fs",
+		ImgsyncPool: imgPool, SourcePool: srcPool,
+	})
+
+	_, err = s.RunOnce(ctx)
+	require.Error(t, err, "expected timeout error")
+
+	st, err := sniffer.NewStateRepo(imgPool).Load(context.Background(), "src")
+	require.NoError(t, err)
+	require.True(t, st.LastRunTS.IsZero(), "watermark must not advance despite timeout: %v", st.LastRunTS)
+}

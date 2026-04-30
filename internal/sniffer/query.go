@@ -15,20 +15,29 @@ type Row struct {
 }
 
 type Query struct {
-	Table        string        // source table, e.g. "images"
-	PKColumn     string        // primary key column, e.g. "id"
-	TSColumn     string        // watermark column, e.g. "updated_at"
-	ExtraColumns []string      // additional columns to SELECT for dst rendering
-	BatchSize    int // LIMIT
+	Table        string   // source table, e.g. "images"
+	PKColumn     string   // primary key column, e.g. "id"
+	TSColumn     string   // watermark column, e.g. "updated_at"
+	ExtraColumns []string // additional columns to SELECT for dst rendering
+	BatchSize    int      // LIMIT
 	// BiasDuration excludes rows newer than NOW()-bias. Stored at second
 	// resolution in SQL; sub-second values truncate to 0s (silently disabling
 	// bias).
 	BiasDuration time.Duration
 }
 
-// Fetch runs the windowed query against the source DB. The predicate uses
-// (TSColumn, PKColumn::TEXT) > (last_run_ts, last_run_pk) so that batches of
-// rows sharing the same TS are split correctly across calls.
+// Fetch runs the windowed query against the source DB.
+//
+// When LastRunPK is empty (first run), a simple ts-only predicate is used:
+//
+//	WHERE ts > last_ts
+//
+// When LastRunPK is set (subsequent runs), an expanded OR predicate is used
+// so that PostgreSQL compares the PK column using its native type rather than
+// casting to TEXT. This correctly handles multi-digit integer PKs (where
+// lexicographic text ordering would break pagination at boundaries like 9→10):
+//
+//	WHERE ts > last_ts OR (ts = last_ts AND pk > last_pk)
 func (q Query) Fetch(ctx context.Context, pool *pgxpool.Pool, from State) ([]Row, error) {
 	if q.BatchSize <= 0 {
 		return nil, fmt.Errorf("batch_size must be > 0")
@@ -42,20 +51,43 @@ func (q Query) Fetch(ctx context.Context, pool *pgxpool.Pool, from State) ([]Row
 		colList += c
 	}
 	biasSec := int(q.BiasDuration.Seconds())
-	pk := from.LastRunPK
-	sql := fmt.Sprintf(`
-		SELECT %s FROM %s
-		WHERE (%s, %s::TEXT) > ($1, $2)
-		  AND %s <= NOW() - ($3::INT || ' seconds')::INTERVAL
-		ORDER BY %s, %s
-		LIMIT %d`,
-		colList, q.Table,
-		q.TSColumn, q.PKColumn,
-		q.TSColumn,
-		q.TSColumn, q.PKColumn,
-		q.BatchSize)
 
-	rows, err := pool.Query(ctx, sql, from.LastRunTS, pk, biasSec)
+	var (
+		sqlQuery string
+		args     []any
+	)
+	if from.LastRunPK == "" {
+		// First run: no pk watermark, filter by ts only.
+		sqlQuery = fmt.Sprintf(`
+			SELECT %s FROM %s
+			WHERE %s > $1
+			  AND %s <= NOW() - ($2::INT || ' seconds')::INTERVAL
+			ORDER BY %s, %s
+			LIMIT %d`,
+			colList, q.Table,
+			q.TSColumn,
+			q.TSColumn,
+			q.TSColumn, q.PKColumn,
+			q.BatchSize)
+		args = []any{from.LastRunTS, biasSec}
+	} else {
+		// Subsequent runs: use expanded OR so PostgreSQL uses the column's
+		// native type for pk comparison (avoids text-sort bugs with integers).
+		sqlQuery = fmt.Sprintf(`
+			SELECT %s FROM %s
+			WHERE (%s > $1 OR (%s = $1 AND %s > $2))
+			  AND %s <= NOW() - ($3::INT || ' seconds')::INTERVAL
+			ORDER BY %s, %s
+			LIMIT %d`,
+			colList, q.Table,
+			q.TSColumn, q.TSColumn, q.PKColumn,
+			q.TSColumn,
+			q.TSColumn, q.PKColumn,
+			q.BatchSize)
+		args = []any{from.LastRunTS, from.LastRunPK, biasSec}
+	}
+
+	rows, err := pool.Query(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
