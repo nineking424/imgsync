@@ -1,0 +1,44 @@
+{{- if .Values.sniffer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "imgsync.fullname" . }}-sniffer
+  labels:
+    {{- include "imgsync.labels" . | nindent 4 }}
+    component: sniffer
+spec:
+  replicas: {{ .Values.sniffer.replicas }}
+  strategy:
+    type: Recreate   # never run two sniffers in parallel — v1 has no advisory lock on sniffer_state
+  selector:
+    matchLabels:
+      {{- include "imgsync.selectorLabels" . | nindent 6 }}
+      component: sniffer
+  template:
+    metadata:
+      labels:
+        {{- include "imgsync.selectorLabels" . | nindent 8 }}
+        component: sniffer
+    spec:
+      containers:
+        - name: sniffer
+          image: {{ include "imgsync.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["sniffer"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "imgsync.fullname" . }}-sniffer
+          env:
+            - name: SNIFFER_SOURCE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sniffer.secrets.sourceDSNSecretRef }}
+                  key: SNIFFER_SOURCE_DSN
+            - name: SNIFFER_IMGSYNC_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sniffer.secrets.imgsyncDSNSecretRef }}
+                  key: SNIFFER_IMGSYNC_DSN
+          resources:
+            {{- toYaml .Values.sniffer.resources | nindent 12 }}
+{{- end }}
