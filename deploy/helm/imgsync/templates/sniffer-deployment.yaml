@@ -19,6 +19,11 @@ spec:
       component: sniffer
   template:
     metadata:
+      annotations:
+        # Force pod restart when the sniffer ConfigMap changes (envFrom reads
+        # env at pod start — without this, helm upgrade updates the ConfigMap
+        # but leaves the sniffer running with stale env values).
+        checksum/sniffer-config: {{ include (print $.Template.BasePath "/sniffer-configmap.yaml") . | sha256sum }}
       labels:
         {{- include "imgsync.selectorLabels" . | nindent 8 }}
         component: sniffer
