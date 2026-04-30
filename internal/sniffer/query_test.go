@@ -80,6 +80,40 @@ func TestQuery_WindowAdvancesAcrossSameTS(t *testing.T) {
 	}
 }
 
+// Regression: under the previous (ts, pk::TEXT) > ($1, $2) predicate, paginating
+// past pk=9 silently dropped pk=10 because '10' < '9' lexicographically. Mirrors
+// integration test S2 at the unit level so a regression is caught without Docker.
+func TestQuery_TieBreakAcrossDigitBoundary(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSourceDB(t)
+	ts := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	for i := 1; i <= 10; i++ {
+		_, err := pool.Exec(ctx, `INSERT INTO images VALUES ($1, $2, 'p')`, i, ts)
+		require.NoError(t, err)
+	}
+
+	q := sniffer.Query{
+		Table: "images", PKColumn: "id", TSColumn: "updated_at",
+		BatchSize: 3,
+	}
+	from := sniffer.State{LastRunTS: ts.Add(-time.Hour), LastRunPK: ""}
+
+	var seen []string
+	for i := 0; i < 5; i++ {
+		rows, err := q.Fetch(ctx, pool, from)
+		require.NoError(t, err)
+		if len(rows) == 0 {
+			break
+		}
+		for _, r := range rows {
+			seen = append(seen, r.PK)
+		}
+		from = sniffer.State{LastRunTS: rows[len(rows)-1].TS, LastRunPK: rows[len(rows)-1].PK}
+	}
+	require.Equal(t, []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}, seen,
+		"pagination must traverse all 10 pks in order; pk=10 must not be skipped after pk=9")
+}
+
 func TestQuery_ExtraColumnsRenderNullAsEmpty(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSourceDB(t)

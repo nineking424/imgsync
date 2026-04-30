@@ -28,16 +28,23 @@ type Query struct {
 
 // Fetch runs the windowed query against the source DB.
 //
-// When LastRunPK is empty (first run), a simple ts-only predicate is used:
+// LastRunPK == "" is treated as the "no carried-over pk" sentinel, which
+// applies on the first run AND after a watermark reset (e.g. S0 sets
+// last_run_pk = NULL). In that case a simple ts-only predicate is used:
 //
 //	WHERE ts > last_ts
 //
-// When LastRunPK is set (subsequent runs), an expanded OR predicate is used
-// so that PostgreSQL compares the PK column using its native type rather than
-// casting to TEXT. This correctly handles multi-digit integer PKs (where
-// lexicographic text ordering would break pagination at boundaries like 9→10):
+// When LastRunPK is set, an expanded OR predicate is used so that PostgreSQL
+// compares the PK column using its native type rather than casting to TEXT.
+// This correctly handles multi-digit integer PKs (where lexicographic text
+// ordering would break pagination at boundaries like 9→10):
 //
 //	WHERE ts > last_ts OR (ts = last_ts AND pk > last_pk)
+//
+// Caveat: source schemas whose PK is TEXT and can legitimately contain the
+// empty string would alias to the "no carried-over pk" sentinel and skip
+// tie-break filtering. v1 source schemas use BIGINT PKs so this is not a
+// concern in practice.
 func (q Query) Fetch(ctx context.Context, pool *pgxpool.Pool, from State) ([]Row, error) {
 	if q.BatchSize <= 0 {
 		return nil, fmt.Errorf("batch_size must be > 0")

@@ -171,4 +171,8 @@ func TestS3_QueryTimeoutLeavesWatermarkUnchanged(t *testing.T) {
 	st, err := sniffer.NewStateRepo(imgPool).Load(context.Background(), "src")
 	require.NoError(t, err)
 	require.True(t, st.LastRunTS.IsZero(), "watermark must not advance despite timeout: %v", st.LastRunTS)
+
+	var enqueued int
+	require.NoError(t, imgPool.QueryRow(context.Background(), `SELECT COUNT(*) FROM transfer_jobs`).Scan(&enqueued))
+	require.Equal(t, 0, enqueued, "no rows must be enqueued when fetch times out")
 }
