@@ -11,9 +11,9 @@ import (
 // DstProtocol are passed verbatim to transfer_jobs; they must match the
 // protocol identifiers expected by the worker (NOT NULL in schema).
 type Config struct {
-	SourceID    string
-	Query       Query
-	Dst         DstTemplate
+	SourceID string
+	Query    Query
+	Dst      DstTemplate
 	// SrcPattern is a text/template body rendered against the source row's
 	// columns; the result is stored in transfer_jobs.src verbatim (no URL
 	// validation — the worker decides how to interpret it via SrcProtocol).

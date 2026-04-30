@@ -8,7 +8,9 @@ import (
 )
 
 // TraceID composes the deterministic identifier per spec Section 2:
-//   trace_id = "<source_table>-<pk>"
+//
+//	trace_id = "<source_table>-<pk>"
+//
 // Same source row always yields same trace_id; idempotency relies on this.
 func TraceID(sourceTable, pk string) string {
 	return sourceTable + "-" + pk
