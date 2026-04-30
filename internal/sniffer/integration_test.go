@@ -8,21 +8,23 @@ import (
 	"time"
 
 	"github.com/nineking424/imgsync/internal/sniffer"
+	"github.com/stretchr/testify/require"
 )
 
 // S0: polling overlap correctness
 //
-//	Run #1 sniffs window. 5 minutes later, run #2 sniffs an overlapping window.
-//	Same source row must NOT produce a duplicate transfer_jobs row.
+//	Run #1 sniffs window. Then we rewind the watermark by 25 minutes (via direct
+//	UPDATE on sniffer_state) so run #2's window overlaps the row run #1 already
+//	enqueued. The same source row must NOT produce a duplicate transfer_jobs row,
+//	because the enqueue path uses ON CONFLICT (trace_id, dst) DO NOTHING.
 func TestS0_PollingOverlapNoDuplicate(t *testing.T) {
 	ctx := context.Background()
 	srcPool := setupSourceDB(t)
 	imgPool := setupImgsyncDBWithTransferJobs(t)
 
 	t0 := time.Now().UTC().Add(-30 * time.Minute)
-	if _, err := srcPool.Exec(ctx, `INSERT INTO images VALUES (1, $1, 'p.jpg')`, t0); err != nil {
-		t.Fatal(err)
-	}
+	_, err := srcPool.Exec(ctx, `INSERT INTO images VALUES (1, $1, 'p.jpg')`, t0)
+	require.NoError(t, err)
 
 	makeS := func(bias time.Duration) *sniffer.Sniffer {
 		return sniffer.New(sniffer.Config{
@@ -36,24 +38,31 @@ func TestS0_PollingOverlapNoDuplicate(t *testing.T) {
 		})
 	}
 
-	if _, err := makeS(0).RunOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	// "5 minutes later" — re-run with overlap (we just call RunOnce again from the same state row, which already advanced).
-	// Force overlap by resetting watermark backwards.
-	_, _ = imgPool.Exec(ctx, `UPDATE sniffer_state SET last_run_ts = last_run_ts - INTERVAL '25 minutes', last_run_pk = NULL`)
-	if _, err := makeS(0).RunOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	_, err = makeS(0).RunOnce(ctx)
+	require.NoError(t, err)
+	// Force overlap by rewinding the persisted watermark 25 minutes (so run #2's
+	// window includes the row run #1 already saw). RowsAffected guards against
+	// a regression where run #1 silently failed to write sniffer_state — without
+	// this check, a no-op UPDATE would let the assertion pass for the wrong reason.
+	tag, err := imgPool.Exec(ctx, `UPDATE sniffer_state SET last_run_ts = last_run_ts - INTERVAL '25 minutes', last_run_pk = NULL`)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), tag.RowsAffected(), "run #1 must have written sniffer_state")
+
+	_, err = makeS(0).RunOnce(ctx)
+	require.NoError(t, err)
 
 	var n int
-	_ = imgPool.QueryRow(ctx, `SELECT COUNT(*) FROM transfer_jobs`).Scan(&n)
-	if n != 1 {
-		t.Fatalf("expected 1 row after overlapping sniff, got %d", n)
-	}
+	require.NoError(t, imgPool.QueryRow(ctx, `SELECT COUNT(*) FROM transfer_jobs`).Scan(&n))
+	require.Equal(t, 1, n, "overlapping sniff must not duplicate")
 }
 
-// S1: crash recovery — kill -9 after 50/100 rows enqueued, restart, no loss.
+// S1: crash recovery — simulate "kill -9 mid-batch then restart" by running two
+// fresh Sniffer instances back-to-back. The persistent sniffer_state watermark
+// is the only carry-over; in-memory state is dropped between runs. With 100
+// rows and BatchSize=50, run #1 covers the first 50, run #2 covers the rest.
+// Dst pattern uses {{.id}} so each row gets a unique dst — combined with the
+// UNIQUE(trace_id, dst) constraint, this is what makes COUNT(*)==COUNT(DISTINCT)
+// the right way to assert "no loss AND no dup".
 func TestS1_CrashRecoveryNoLossNoDup(t *testing.T) {
 	ctx := context.Background()
 	srcPool := setupSourceDB(t)
@@ -61,11 +70,12 @@ func TestS1_CrashRecoveryNoLossNoDup(t *testing.T) {
 
 	t0 := time.Now().UTC().Add(-time.Hour)
 	for i := 1; i <= 100; i++ {
-		_, _ = srcPool.Exec(ctx, `INSERT INTO images VALUES ($1, $2, $3)`,
+		_, err := srcPool.Exec(ctx, `INSERT INTO images VALUES ($1, $2, $3)`,
 			i, t0.Add(time.Duration(i)*time.Second), "f.jpg")
+		require.NoError(t, err)
 	}
 
-	make := func() *sniffer.Sniffer {
+	makeS := func() *sniffer.Sniffer {
 		return sniffer.New(sniffer.Config{
 			SourceID:    "src",
 			Query:       sniffer.Query{Table: "images", PKColumn: "id", TSColumn: "updated_at", ExtraColumns: []string{"file_path"}, BatchSize: 50},
@@ -77,16 +87,14 @@ func TestS1_CrashRecoveryNoLossNoDup(t *testing.T) {
 		})
 	}
 
-	if _, err := make().RunOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := make().RunOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	_, err := makeS().RunOnce(ctx)
+	require.NoError(t, err)
+	_, err = makeS().RunOnce(ctx)
+	require.NoError(t, err)
 
-	var n int
-	_ = imgPool.QueryRow(ctx, `SELECT COUNT(DISTINCT trace_id) FROM transfer_jobs`).Scan(&n)
-	if n != 100 {
-		t.Fatalf("expected 100 distinct trace_ids, got %d", n)
-	}
+	var distinct, total int
+	require.NoError(t, imgPool.QueryRow(ctx, `SELECT COUNT(DISTINCT trace_id) FROM transfer_jobs`).Scan(&distinct))
+	require.NoError(t, imgPool.QueryRow(ctx, `SELECT COUNT(*) FROM transfer_jobs`).Scan(&total))
+	require.Equal(t, 100, distinct, "must enqueue all 100 rows")
+	require.Equal(t, 100, total, "must not duplicate any row across the two runs")
 }

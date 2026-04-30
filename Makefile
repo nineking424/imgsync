@@ -84,4 +84,4 @@ e2e-dirty-state: ## Run F5 dirty-state recovery E2E (added in Task 6)
 
 .PHONY: test-integration-sniffer
 test-integration-sniffer: ## Run sniffer integration tests S0+S1 (requires Docker)
-	go test -tags integration -run "TestS[01]_" -v ./internal/sniffer/
+	go test -tags integration -timeout 5m -run "TestS[01]_" -v ./internal/sniffer/
