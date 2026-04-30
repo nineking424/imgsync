@@ -1,4 +1,7 @@
 {{- if .Values.sniffer.enabled }}
+{{- if gt (int .Values.sniffer.replicas) 1 }}
+{{- fail "sniffer.replicas must be 1: v1 has no advisory lock on sniffer_state, so concurrent sniffers race the watermark and re-enqueue rows. Sniffer horizontal scaling is a v2 feature." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

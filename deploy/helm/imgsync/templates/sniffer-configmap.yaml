@@ -14,6 +14,8 @@ data:
   SNIFFER_EXTRA_COLUMNS: {{ .Values.sniffer.config.extraColumns | quote }}
   SNIFFER_DST_PATTERN:  {{ .Values.sniffer.config.dstPattern | quote }}
   SNIFFER_SRC_PATTERN:  {{ .Values.sniffer.config.srcPattern | quote }}
+  SNIFFER_SRC_PROTOCOL: {{ .Values.sniffer.config.srcProtocol | quote }}
+  SNIFFER_DST_PROTOCOL: {{ .Values.sniffer.config.dstProtocol | quote }}
   SNIFFER_SHADOW:       {{ .Values.sniffer.config.shadow | quote }}
   SNIFFER_BATCH_SIZE:   {{ .Values.sniffer.config.batchSize | quote }}
   SNIFFER_BIAS_SEC:     {{ .Values.sniffer.config.biasSec | quote }}
