@@ -151,16 +151,20 @@ func (e *kindEnv) openSourcePool(t *testing.T, ctx context.Context) *pgxpool.Poo
 	t.Helper()
 
 	pfCtx, pfCancel := context.WithCancel(context.Background())
-	t.Cleanup(pfCancel)
 
 	cmd := exec.CommandContext(pfCtx, "kubectl", "-n", namespace,
 		"port-forward", "svc/source-postgres", "5434:5432")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
+		pfCancel()
 		t.Fatalf("kubectl port-forward source-postgres: %v", err)
 	}
+	// Single cleanup so cancel runs before Wait — separate t.Cleanup calls run
+	// LIFO and would deadlock (Wait would block forever waiting for the still-
+	// alive kubectl process before pfCancel ever ran).
 	t.Cleanup(func() {
+		pfCancel()
 		_ = cmd.Wait()
 	})
 	time.Sleep(2 * time.Second) // give port-forward time to establish
