@@ -137,8 +137,8 @@ sniffer:
     # against each row at runtime.
     dstPattern: "/incoming/{{.file_path}}"
     srcPattern: "src://images/{{.id}}"
-    srcProtocol: "fs"
-    dstProtocol: "fs"
+    srcProtocol: "localfs"
+    dstProtocol: "localfs"
     shadow: true
     batchSize: "500"
     biasSec: "5"
