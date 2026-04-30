@@ -81,3 +81,7 @@ e2e-throughput: ## Run C7 throughput E2E (kind cluster required)
 .PHONY: e2e-dirty-state
 e2e-dirty-state: ## Run F5 dirty-state recovery E2E (added in Task 6)
 	IMGSYNC_E2E=1 go test -tags e2e -timeout 30m -v ./e2e/... -run TestF5_DirtyStateRecovery
+
+.PHONY: test-integration-sniffer
+test-integration-sniffer: ## Run sniffer integration tests S0+S1 (requires Docker)
+	go test -tags integration -run "TestS[01]_" -v ./internal/sniffer/
