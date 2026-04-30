@@ -1,0 +1,52 @@
+{{- if .Values.sniffer.enabled }}
+{{- if gt (int .Values.sniffer.replicas) 1 }}
+{{- fail "sniffer.replicas must be 1: v1 has no advisory lock on sniffer_state, so concurrent sniffers race the watermark and re-enqueue rows. Sniffer horizontal scaling is a v2 feature." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "imgsync.fullname" . }}-sniffer
+  labels:
+    {{- include "imgsync.labels" . | nindent 4 }}
+    component: sniffer
+spec:
+  replicas: {{ .Values.sniffer.replicas }}
+  strategy:
+    type: Recreate   # never run two sniffers in parallel — v1 has no advisory lock on sniffer_state
+  selector:
+    matchLabels:
+      {{- include "imgsync.selectorLabels" . | nindent 6 }}
+      component: sniffer
+  template:
+    metadata:
+      annotations:
+        # Force pod restart when the sniffer ConfigMap changes (envFrom reads
+        # env at pod start — without this, helm upgrade updates the ConfigMap
+        # but leaves the sniffer running with stale env values).
+        checksum/sniffer-config: {{ include (print $.Template.BasePath "/sniffer-configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "imgsync.selectorLabels" . | nindent 8 }}
+        component: sniffer
+    spec:
+      containers:
+        - name: sniffer
+          image: {{ include "imgsync.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["sniffer"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "imgsync.fullname" . }}-sniffer
+          env:
+            - name: SNIFFER_SOURCE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sniffer.secrets.sourceDSNSecretRef }}
+                  key: SNIFFER_SOURCE_DSN
+            - name: SNIFFER_IMGSYNC_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sniffer.secrets.imgsyncDSNSecretRef }}
+                  key: SNIFFER_IMGSYNC_DSN
+          resources:
+            {{- toYaml .Values.sniffer.resources | nindent 12 }}
+{{- end }}

@@ -115,3 +115,34 @@ migrationJob:
     limits:
       cpu: 200m
       memory: 128Mi
+
+sniffer:
+  enabled: true
+  replicas: 1   # v1: single sniffer pod, no advisory lock
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  config:
+    sourceID: "main-source-db.images"
+    table: "images"
+    pkColumn: "id"
+    tsColumn: "updated_at"
+    extraColumns: "file_path"
+    # values.yaml is loaded as plain YAML, not Helm-templated. Write Go template
+    # syntax directly here — the sniffer's text/template engine renders these
+    # against each row at runtime.
+    dstPattern: "/incoming/{{.file_path}}"
+    srcPattern: "src://images/{{.id}}"
+    srcProtocol: "localfs"
+    dstProtocol: "localfs"
+    shadow: true
+    batchSize: "500"
+    biasSec: "5"
+    intervalSec: "60"
+  secrets:
+    sourceDSNSecretRef: "imgsync-source-dsn"      # contains key SNIFFER_SOURCE_DSN
+    imgsyncDSNSecretRef: "imgsync-db-dsn"         # contains key SNIFFER_IMGSYNC_DSN

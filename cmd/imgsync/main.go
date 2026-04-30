@@ -26,6 +26,7 @@ func main() {
 	root.AddCommand(newMigrateCmd())
 	root.AddCommand(newEnqueueCmd())
 	root.AddCommand(newWorkerCmd())
+	root.AddCommand(newSnifferCmd())
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)

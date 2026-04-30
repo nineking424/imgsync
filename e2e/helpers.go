@@ -22,7 +22,7 @@ const (
 	clusterName = "imgsync-e2e"
 	namespace   = "imgsync-e2e"
 	releaseName = "imgsync"
-	chartPath   = "../deploy/helm/imgsync"
+	chartPath   = "deploy/helm/imgsync"
 	hostFsRoot  = "/tmp/imgsync-e2e-localfs"
 )
 
@@ -36,6 +36,14 @@ type kindEnv struct {
 }
 
 func bootstrapKindEnv(t *testing.T, ctx context.Context) *kindEnv {
+	t.Helper()
+	return bootstrapKindEnvSized(t, ctx, 10*1024*1024)
+}
+
+// bootstrapKindEnvSized is like bootstrapKindEnv but lets the caller choose the
+// per-fixture file size. Use a small value (e.g. 1024) for tests that do not
+// need to measure throughput and are constrained by disk space.
+func bootstrapKindEnvSized(t *testing.T, ctx context.Context, fixtureSizeBytes int) *kindEnv {
 	t.Helper()
 
 	// Run scripts/e2e-up.sh from the repo root
@@ -67,8 +75,8 @@ func bootstrapKindEnv(t *testing.T, ctx context.Context) *kindEnv {
 		time.Sleep(1 * time.Second)
 	}
 
-	// Seed source files on the shared volume (1000 × 10MB)
-	env.seedFixtures(t, ctx, 1000, 10*1024*1024)
+	// Seed source files on the shared volume.
+	env.seedFixtures(t, ctx, 1000, fixtureSizeBytes)
 
 	return env
 }
@@ -166,6 +174,17 @@ func (e *kindEnv) truncateJobs(t *testing.T, ctx context.Context) {
 	}
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		t.Fatalf("recreate dst dir: %v", err)
+	}
+}
+
+// truncateSnifferState resets the sniffer watermark so the next sniffer poll
+// starts from the beginning of the source table. Call this after helmUpgrade
+// (which restarts the sniffer pod) to ensure the new sniffer config is the
+// one that first sees the source rows.
+func (e *kindEnv) truncateSnifferState(t *testing.T, ctx context.Context) {
+	t.Helper()
+	if _, err := e.pool.Exec(ctx, "TRUNCATE sniffer_state"); err != nil {
+		t.Fatalf("truncate sniffer_state: %v", err)
 	}
 }
 

@@ -1,0 +1,23 @@
+{{- if .Values.sniffer.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "imgsync.fullname" . }}-sniffer
+  labels:
+    {{- include "imgsync.labels" . | nindent 4 }}
+    component: sniffer
+data:
+  SNIFFER_SOURCE_ID:    {{ .Values.sniffer.config.sourceID | quote }}
+  SNIFFER_TABLE:        {{ .Values.sniffer.config.table | quote }}
+  SNIFFER_PK_COLUMN:    {{ .Values.sniffer.config.pkColumn | quote }}
+  SNIFFER_TS_COLUMN:    {{ .Values.sniffer.config.tsColumn | quote }}
+  SNIFFER_EXTRA_COLUMNS: {{ .Values.sniffer.config.extraColumns | quote }}
+  SNIFFER_DST_PATTERN:  {{ .Values.sniffer.config.dstPattern | quote }}
+  SNIFFER_SRC_PATTERN:  {{ .Values.sniffer.config.srcPattern | quote }}
+  SNIFFER_SRC_PROTOCOL: {{ .Values.sniffer.config.srcProtocol | quote }}
+  SNIFFER_DST_PROTOCOL: {{ .Values.sniffer.config.dstProtocol | quote }}
+  SNIFFER_SHADOW:       {{ .Values.sniffer.config.shadow | quote }}
+  SNIFFER_BATCH_SIZE:   {{ .Values.sniffer.config.batchSize | quote }}
+  SNIFFER_BIAS_SEC:     {{ .Values.sniffer.config.biasSec | quote }}
+  SNIFFER_INTERVAL_SEC: {{ .Values.sniffer.config.intervalSec | quote }}
+{{- end }}
