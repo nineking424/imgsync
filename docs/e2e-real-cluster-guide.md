@@ -494,6 +494,96 @@ SELECT trace_id, count(*) FROM transfer_events
 
 ---
 
+## 7. 시나리오 C7 — 처리량 스케일아웃 (replica 2→8)
+
+### 7.1 목적
+
+워커 replica 를 늘렸을 때 처리량이 단조 증가하는지(sub-linear OK)를 큰 자릿수로
+확인한다. 1MB × 1000 건을 두 차례 흘려보내고 jobs/sec 비율을 비교한다.
+
+### 7.2 절차
+
+1. **시드 (1MB × 1000)**
+   ```bash
+   make e2e-seed-real ARGS="1000 1048576"
+   # 또는 직접:
+   ./scripts/e2e-seed-real.sh 1000 1048576
+   ```
+   기존 1KB 시드와 충돌하지 않도록 같은 디렉터리에 1MB 가 덮어써진다 (idempotent
+   block: 파일이 이미 있으면 건너뜀 → 1MB 로 갈아끼우려면 시드 전에 `wipe-src`
+   먼저 실행).
+
+2. **Phase A — replicaCount=2 (chart default) 로 1000 건 드레인**
+   ```bash
+   # transfer_jobs / dst 초기화
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+     psql -U imgsync -d imgsync -c "TRUNCATE transfer_jobs CASCADE;"
+   kubectl -n imgsync-e2e-real run wipe-dst-c7 --rm -i --restart=Never \
+     --image=alpine:3.20 --overrides='{"spec":{"securityContext":{"runAsUser":0}}}' \
+     --command -- sh -c 'rm -f /mnt/dst/file-*.bin && chown 65532:65532 /mnt/dst' \
+     --overrides='{"spec":{"containers":[{"name":"wipe","image":"alpine:3.20","command":["sh","-c","rm -f /mnt/dst/file-*.bin && chown 65532:65532 /mnt/dst"],"volumeMounts":[{"name":"d","mountPath":"/mnt/dst"}]}],"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"imgsync-localfs"}}]}}'
+
+   # phaseA- 1000건 INSERT
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- psql -U imgsync -d imgsync \
+     -c "INSERT INTO transfer_jobs (trace_id, src, dst, src_protocol, dst_protocol)
+         SELECT 'phaseA-' || lpad(i::text, 5, '0'),
+                '/srv/imgsync/src/file-' || lpad(i::text, 5, '0') || '.bin',
+                '/srv/imgsync/dst/file-' || lpad(i::text, 5, '0') || '.bin',
+                'localfs', 'localfs'
+         FROM generate_series(1, 1000) AS i;"
+
+   START_A=$(date +%s)
+   while true; do
+     N=$(kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+           psql -U imgsync -d imgsync -tAc \
+           "SELECT count(*) FROM transfer_jobs WHERE status='succeeded'" | tr -d ' \r')
+     [ "$N" -ge 1000 ] && { END_A=$(date +%s); break; }
+     [ $(($(date +%s) - START_A)) -gt 900 ] && { echo "TIMEOUT"; break; }
+     sleep 2
+   done
+   DUR_A=$(( END_A - START_A ))
+   TPUT_A=$(awk "BEGIN{printf \"%.2f\", 1000 / $DUR_A}")
+   echo "Phase A: ${DUR_A}s, ${TPUT_A} jobs/sec"
+   ```
+
+3. **scale 2 → 8**
+   ```bash
+   helm upgrade imgsync deploy/helm/imgsync \
+     -n imgsync-e2e-real --reuse-values --set replicaCount=8 --wait --timeout 5m
+   kubectl -n imgsync-e2e-real get deploy imgsync   # 8/8 ready
+   ```
+
+4. **Phase B — replicaCount=8 로 1000 건 드레인**
+   Phase A 와 동일 절차 (TRUNCATE → wipe-dst → phaseB- INSERT → drain poll →
+   `TPUT_B`).
+
+5. **비율 계산**
+   ```bash
+   awk "BEGIN{printf \"%.2f\", $TPUT_B / $TPUT_A}"
+   ```
+   2~4× 사이를 기대 (4× scale 에 sub-linear). 1× 미만이면 NFS 또는 네트워크
+   포화 의심.
+
+### 7.3 측정 결과 (2026-05-03)
+
+| Phase | replica | DUR  | TPUT (jobs/sec) | dead |
+|-------|---------|------|-----------------|------|
+| A     | 2       | 21s  | 47.62           | 0    |
+| B     | 8       | 9s   | 111.11          | 0    |
+
+- **RATIO = 2.33×** (replica 4× → throughput 2.33×, sub-linear 정상)
+- scale 2→8 까지 8s (≤ 5min 예산)
+- 모든 1000 건 succeeded, dead=0
+
+### 7.4 합격 조건
+
+- [x] Phase A: 1000건 succeeded, dead=0
+- [x] scale 2→8 5분 이내
+- [x] Phase B: 1000건 succeeded, dead=0
+- [x] `TPUT_B / TPUT_A` ≥ 1.5× (2.33× 측정)
+
+---
+
 ## 8. 사후 정리
 
 ```bash
