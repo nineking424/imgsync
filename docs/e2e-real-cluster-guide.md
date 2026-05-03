@@ -249,6 +249,94 @@ SELECT trace_id, count(*) FROM transfer_events
 
 ---
 
+## 4. 시나리오 F5a — Mid-flight 워커 강제 종료 후 sweeper 회복
+
+자동 테스트 (kind): `e2e/dirty_state_test.go::TestF5_DirtyStateRecovery/F5a_mid_flight_kill`
+
+### 4.1 목적
+
+워커 한 대가 떨어져도 sweeper 가 leased→pending 으로 회복시켜
+모든 잡이 결국 `succeeded` 로 끝나는지 확인. 사라진 잡이 0, 좀비 leased 도 0.
+
+> **NOTE — 1KB fixture + NFS 환경에서의 절차 적응:** 자동 e2e 는 워커를
+> SIGKILL 한 직후 일부 leased 잡이 orphan 으로 남는 것을 catch 한다. 그러나
+> 본 클러스터의 1KB × 100 = ~50ms 총 전송 시간은 너무 빨라 사람 눈으로
+> leased 상태를 보기 어렵다 (8 worker concurrency × ms 단위 dd). 본 가이드는
+> 따라서 sweeper invariant 만 직접 검증하는 형태로 절차를 짰다 — 5건을
+> `locked_at = NOW() - 6min` 의 ghost-lease 로 born-insert 하고, 나머지 95건과
+> 함께 처리되는 것을 본다. 실제 pod kill 도 함께 수행해서 SIGKILL 경로
+> 자체가 클러스터를 망가뜨리지 않음을 확인한다.
+
+### 4.2 절차
+
+1. 깨끗한 출발 + replicas=2:
+   ```bash
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+     psql -U imgsync -d imgsync -c \
+     'TRUNCATE transfer_jobs, transfer_events RESTART IDENTITY CASCADE'
+   ```
+
+2. fixture 100건 이상 (`make e2e-seed-real` 가 1000개 깔아두는 것 재사용).
+
+3. 100건 enqueue — 그 중 5건은 ghost-leased 로 born-insert (sweeper 회복 트리거):
+   ```bash
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+     psql -U imgsync -d imgsync -c "
+     INSERT INTO transfer_jobs
+       (trace_id, src, dst, src_protocol, dst_protocol,
+        status, attempts, max_attempts, payload, next_run_at,
+        locked_at, locked_by)
+     SELECT 'f5a-' || lpad(i::text, 5, '0'),
+            '/srv/imgsync/src/file-' || lpad(i::text, 5, '0') || '.bin',
+            '/srv/imgsync/dst/file-' || lpad(i::text, 5, '0') || '.bin',
+            'localfs', 'localfs',
+            CASE WHEN i <= 5 THEN 'leased'::job_status ELSE 'pending'::job_status END,
+            0, 5, '{}'::jsonb, NOW(),
+            CASE WHEN i <= 5 THEN NOW() - INTERVAL '6 minutes' ELSE NULL END,
+            CASE WHEN i <= 5 THEN 'ghost-pod-killed' ELSE NULL END
+     FROM generate_series(1, 100) AS i;"
+   ```
+
+4. (선택) 워커 한 대를 강제 종료 — SIGKILL 자체가 클러스터를 안 망가뜨리는지 확인:
+   ```bash
+   POD=$(kubectl -n imgsync-e2e-real get pods -l app.kubernetes.io/name=imgsync \
+         -o jsonpath='{.items[0].metadata.name}')
+   kubectl -n imgsync-e2e-real delete pod "$POD" --grace-period=0 --force
+   ```
+
+5. 5분 budget 으로 100건 모두 succeeded 폴링:
+   ```bash
+   START=$(date +%s)
+   while true; do
+     N=$(kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+         psql -U imgsync -d imgsync -At -c \
+         "SELECT count(*) FROM transfer_jobs WHERE status='succeeded'")
+     echo "$(date +%T) succeeded=$N"
+     [ "$N" -ge 100 ] && break
+     [ $(($(date +%s) - START)) -gt 300 ] && { echo "TIMEOUT"; break; }
+     sleep 3
+   done
+   ```
+
+### 4.3 검증 체크리스트
+
+- [ ] 5분 내 100건 모두 succeeded
+- [ ] dead = 0, leased = 0
+  ```sql
+  SELECT status, count(*) FROM transfer_jobs GROUP BY status;
+  ```
+- [ ] sweeper 가 회수한 잡 ≥ 1건 + 그 잡들의 attempts = 0:
+  ```sql
+  SELECT count(*) FROM transfer_jobs j
+   WHERE j.status='succeeded' AND j.attempts=0
+     AND EXISTS (SELECT 1 FROM transfer_events e
+                  WHERE e.trace_id=j.trace_id AND e.job_id=j.id
+                    AND e.status='expire');
+  -- 기대: ≥ 1 (5건의 ghost-lease 가 모두 expire 후 succeeded)
+  ```
+
+---
+
 ## 8. 사후 정리
 
 ```bash
