@@ -10,14 +10,15 @@ SHA="$(git rev-parse --short HEAD)"
 TAG="${IMGSYNC_E2E_TAG:-e2e-${SHA}}"
 IMAGE="${REGISTRY}/imgsync:${TAG}"
 
-echo "==> Building ${IMAGE}"
-DOCKER_BUILDKIT=1 docker build \
+PLATFORMS="${IMGSYNC_E2E_PLATFORMS:-linux/amd64,linux/arm64}"
+
+echo "==> Building & pushing ${IMAGE} (${PLATFORMS})"
+docker buildx build \
+  --platform "${PLATFORMS}" \
   --build-arg VERSION="${SHA}" \
   -t "${IMAGE}" \
+  --push \
   .
-
-echo "==> Pushing ${IMAGE}"
-docker push "${IMAGE}"
 
 echo
 echo "Pushed: ${IMAGE}"
