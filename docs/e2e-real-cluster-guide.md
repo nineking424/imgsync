@@ -631,3 +631,4 @@ kubectl -n imgsync-e2e-real run --rm -i --restart=Never \
 - 자동 e2e (kind) 의 정확한 SQL/타이밍은 `e2e/helpers.go`, `e2e/{sniffer,dirty_state,throughput}_test.go` 가 진실의 소스
 - 운영자 일상은 `docs/runbook.md`
 - 이 가이드의 자매 문서 (kind+helm 시나리오): `docs/e2e-manual-guide.md`
+- 최근 실행 리포트: `docs/test-reports/2026-05-03-imgsync-real-cluster-0612277.md` (5/5 PASS)
