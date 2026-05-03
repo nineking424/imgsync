@@ -337,6 +337,163 @@ SELECT trace_id, count(*) FROM transfer_events
 
 ---
 
+## 5. 시나리오 F5b — 잘못된 helm upgrade → rollback 회복
+
+자동 테스트 (kind): `e2e/dirty_state_test.go::TestF5_DirtyStateRecovery/F5b_bad_upgrade_then_rollback`
+
+### 5.1 목적
+
+존재하지 않는 이미지 태그로 helm upgrade 했을 때, `helm rollback` 만으로
+이전 정상 상태로 돌아오고 in-flight job 이 잃지 않고 완료되는지 확인.
+
+> **NOTE:** 1KB × 50 = ~30ms 총 전송 → 잡은 helm upgrade timeout(30s) 보다
+> 훨씬 빨리 끝난다. 본 절차는 in-flight 동시성을 직접 catch 하지 않고,
+> rollback 경로 자체와 그 이후 상태 무손실을 검증한다. 대용량 fixture 가
+> 있는 환경에서는 동일 절차가 in-flight 회복까지 함께 검증하게 된다.
+
+### 5.2 절차
+
+1. 깨끗한 출발 — control DB 비우고 50건 enqueue:
+   ```bash
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+     psql -U imgsync -d imgsync -c \
+     'TRUNCATE transfer_jobs, transfer_events RESTART IDENTITY CASCADE'
+
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+     psql -U imgsync -d imgsync -c "
+     INSERT INTO transfer_jobs
+       (trace_id, src, dst, src_protocol, dst_protocol,
+        status, attempts, max_attempts, payload, next_run_at)
+     SELECT 'f5b-' || lpad(i::text, 5, '0'),
+            '/srv/imgsync/src/file-' || lpad(i::text, 5, '0') || '.bin',
+            '/srv/imgsync/dst/file-' || lpad(i::text, 5, '0') || '.bin',
+            'localfs', 'localfs', 'pending', 0, 5, '{}'::jsonb, NOW()
+     FROM generate_series(1, 50) AS i;"
+   ```
+
+2. 망가진 upgrade — 존재하지 않는 태그 (pre-upgrade migrate hook 가 ImagePullBackOff 으로 30s 안에 timeout):
+   ```bash
+   helm -n imgsync-e2e-real upgrade --install imgsync deploy/helm/imgsync \
+     -f e2e/manifests/real/values-real.yaml \
+     --set image.repository=ghcr.io/nineking424/imgsync \
+     --set image.tag=does-not-exist \
+     --set replicaCount=2 \
+     --wait --timeout 30s || true
+   ```
+   상태 점검:
+   ```bash
+   kubectl -n imgsync-e2e-real get pods -l app.kubernetes.io/name=imgsync
+   # 기대: 기존 worker pod 들은 Running 그대로, 새 migrate hook pod 가 ErrImagePull/ImagePullBackOff
+   ```
+
+3. rollback:
+   ```bash
+   helm -n imgsync-e2e-real rollback imgsync --wait --timeout 3m
+   helm -n imgsync-e2e-real history imgsync
+   # 기대: revision 2 → status=failed, revision 3 → status=deployed (Rollback to 1)
+   ```
+
+4. 5분 budget 으로 50건 모두 succeeded 폴링 (§4.2 step 5 와 동일 형태).
+
+### 5.3 검증 체크리스트
+
+- [ ] `helm history` 의 bad revision 이 `failed`
+- [ ] `helm history` 의 rollback revision 이 `deployed`
+- [ ] 5분 내 50건 모두 succeeded
+- [ ] dead = 0, leased = 0
+
+---
+
+## 6. 시나리오 F5c — uninstall → reinstall 멱등 마이그레이션
+
+자동 테스트 (kind): `e2e/dirty_state_test.go::TestF5_DirtyStateRecovery/F5c_uninstall_reinstall_idempotent_migration`
+
+### 6.1 목적
+
+`helm uninstall` 은 DB 를 건드리지 않는다. 잡 30건을 enqueue 한 뒤 워커가
+일을 다 끝내기 전에 uninstall 했다가, 다시 install 하면 pre-install hook 이
+멱등하게 migrate 를 다시 돌리고 잔여 잡을 워커가 마저 처리하는지 확인.
+
+> **NOTE:** F5b 와 동일 — 1KB 잡은 uninstall timeout 보다 빠르다. 본 절차는
+> uninstall 전에 모든 잡이 끝났을 가능성이 크지만, 그래도 (a) 잡 데이터가
+> uninstall 을 살아남았는지, (b) reinstall 시 pre-install migrate Job 이
+> 멱등하게 성공하는지를 명확히 검증한다.
+
+### 6.2 절차
+
+1. 깨끗한 출발 + 30건 enqueue:
+   ```bash
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+     psql -U imgsync -d imgsync -c \
+     'TRUNCATE transfer_jobs, transfer_events RESTART IDENTITY CASCADE'
+
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+     psql -U imgsync -d imgsync -c "
+     INSERT INTO transfer_jobs
+       (trace_id, src, dst, src_protocol, dst_protocol,
+        status, attempts, max_attempts, payload, next_run_at)
+     SELECT 'f5c-' || lpad(i::text, 5, '0'),
+            '/srv/imgsync/src/file-' || lpad(i::text, 5, '0') || '.bin',
+            '/srv/imgsync/dst/file-' || lpad(i::text, 5, '0') || '.bin',
+            'localfs', 'localfs', 'pending', 0, 5, '{}'::jsonb, NOW()
+     FROM generate_series(1, 30) AS i;"
+   ```
+
+2. uninstall:
+   ```bash
+   helm -n imgsync-e2e-real uninstall imgsync --wait --timeout 2m
+   ```
+
+3. uninstall 직후 DB 상태 캡처 — 잡 데이터가 살아남았는가:
+   ```bash
+   kubectl -n imgsync-e2e-real exec deploy/postgres -- \
+     psql -U imgsync -d imgsync -c \
+     "SELECT status, count(*) FROM transfer_jobs GROUP BY status"
+   # 기대: pending+leased+succeeded == 30, dead = 0
+   ```
+
+4. reinstall — uninstall 이 ServiceAccount 를 제거했으므로 다시 만들고 helm install:
+   ```bash
+   kubectl apply -f - <<'EOF'
+   apiVersion: v1
+   kind: ServiceAccount
+   metadata:
+     name: imgsync
+     namespace: imgsync-e2e-real
+     labels:
+       app.kubernetes.io/managed-by: Helm
+     annotations:
+       meta.helm.sh/release-name: imgsync
+       meta.helm.sh/release-namespace: imgsync-e2e-real
+   EOF
+
+   helm -n imgsync-e2e-real upgrade --install imgsync deploy/helm/imgsync \
+     -f e2e/manifests/real/values-real.yaml \
+     --set image.repository=ghcr.io/nineking424/imgsync \
+     --set image.tag=e2e-$(git rev-parse --short HEAD) \
+     --set replicaCount=2 \
+     --wait --timeout 5m
+   ```
+
+5. pre-install Job 이 성공했는지 (멱등 마이그레이션 입증):
+   ```bash
+   helm -n imgsync-e2e-real status imgsync | grep -E "STATUS|REVISION"
+   # 기대: STATUS=deployed, REVISION=1 (uninstall 후 카운터 초기화)
+   ```
+   (chart 의 migrate Job 은 `hook-delete-policy: hook-succeeded` 라
+    완료 시 자동 삭제 → `kubectl get jobs` 에 보이지 않으면 성공이다.)
+
+6. 5분 budget 으로 잔여 잡 모두 succeeded 폴링 (§4.2 step 5 동일).
+
+### 6.3 검증 체크리스트
+
+- [ ] uninstall 직후: `pending+leased+succeeded == 30`, dead = 0
+- [ ] reinstall 시 helm STATUS=deployed
+- [ ] 5분 내 30건 모두 succeeded
+- [ ] dead = 0, leased = 0
+
+---
+
 ## 8. 사후 정리
 
 ```bash
