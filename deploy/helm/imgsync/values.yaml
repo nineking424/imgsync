@@ -9,6 +9,13 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# Append additional volumes/volumeMounts to BOTH the worker Deployment and the
+# sniffer Deployment. Used by e2e flows that need a shared filesystem (e.g.
+# the real-cluster e2e mounts an NFS-backed PVC at /srv/imgsync). Production
+# installs typically leave these empty.
+extraVolumes: []
+extraVolumeMounts: []
+
 # Pre-existing Secret with the postgres DSN.
 # Operator MUST create this Secret before installing the chart.
 # Example:

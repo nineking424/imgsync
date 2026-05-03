@@ -1,0 +1,72 @@
+# Source DB the sniffer reads from (C5' scenario). Same shape as postgres.yaml
+# with different DB/user/password and PVC name.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: source-postgres-data
+  namespace: imgsync-e2e-real
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: source-postgres
+  namespace: imgsync-e2e-real
+spec:
+  selector:
+    app: source-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: source-postgres
+  namespace: imgsync-e2e-real
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: source-postgres
+  template:
+    metadata:
+      labels:
+        app: source-postgres
+    spec:
+      containers:
+        - name: source-postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_USER
+              value: source
+            - name: POSTGRES_PASSWORD
+              value: source
+            - name: POSTGRES_DB
+              value: source
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "source", "-d", "source"]
+            periodSeconds: 2
+            timeoutSeconds: 2
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits:   { cpu: 1000m, memory: 512Mi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: source-postgres-data

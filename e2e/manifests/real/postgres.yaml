@@ -1,0 +1,75 @@
+# Control DB for imgsync. Stateful enough that a Pod restart shouldn't lose
+# transfer_jobs rows mid-test, so we mount an NFS PVC. Postgres on NFS is
+# sub-optimal for prod but adequate for the 5-15 min test scenarios here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: imgsync-e2e-real
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: imgsync-e2e-real
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: imgsync-e2e-real
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate   # NFS RWO PVC: never schedule two pods on the same volume
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_USER
+              value: imgsync
+            - name: POSTGRES_PASSWORD
+              value: imgsync
+            - name: POSTGRES_DB
+              value: imgsync
+            # Postgres on NFS: writes its lockfile and pid into the data dir.
+            # Use a sub-path so the PV root stays clean and re-mountable.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "imgsync", "-d", "imgsync"]
+            periodSeconds: 2
+            timeoutSeconds: 2
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits:   { cpu: 1000m, memory: 1Gi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
