@@ -86,6 +86,18 @@ e2e-dirty-state: ## Run F5 dirty-state recovery E2E (added in Task 6)
 e2e-sniffer: ## Run sniffer C5' E2E (kind cluster required)
 	IMGSYNC_E2E=1 go test -tags e2e -timeout 20m -v ./e2e/... -run TestC5Prime_
 
+.PHONY: e2e-up-real
+e2e-up-real: ## Bring up the real-cluster e2e environment (requires kubectl context set)
+	./scripts/e2e-up-real.sh
+
+.PHONY: e2e-down-real
+e2e-down-real: ## Tear down the real-cluster e2e environment
+	./scripts/e2e-down-real.sh
+
+.PHONY: e2e-seed-real
+e2e-seed-real: ## Seed fixture files into the real-cluster localfs PVC (defaults: 1000 × 1KB)
+	./scripts/e2e-seed-real.sh
+
 .PHONY: test-integration-sniffer
 test-integration-sniffer: ## Run sniffer integration tests S0-S3 (requires Docker)
 	go test -tags integration -timeout 5m -run "TestS[0-3]_" -v ./internal/sniffer/
