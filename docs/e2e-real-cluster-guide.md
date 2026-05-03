@@ -143,7 +143,109 @@ kubectl -n imgsync-e2e-real run --rm -i --restart=Never \
 본 가이드는 §3 부터 §7 까지 채워나가는 살아 있는 문서다. 새 시나리오를
 추가할 때는 같은 형식 (목적 / 절차 / 검증 체크리스트) 을 유지한다.
 
-(섹션 §3~§7 은 이 plan 의 Task 11~14 가 채운다.)
+## 3. 시나리오 C5' — Sniffer 자가 감사
+
+자동 테스트 (kind): `e2e/sniffer_test.go::TestC5Prime_SnifferSelfAudit`
+
+### 3.1 목적
+
+source DB 에 1000 행을 넣으면 sniffer 가 정확히 1000건을 `transfer_jobs` 로
+enqueue 하고, `trace_id` 가 모두 distinct 하며, 워커가 shadow path 로 모두
+복사하여 `dead = 0` 이 되는지 확인.
+
+### 3.2 절차
+
+1. 부트스트랩 끝낸 상태 가정 (§1.2). 1KB fixture 시드:
+   ```bash
+   make e2e-seed-real
+   ```
+
+2. control DB / source DB 포트포워드 (§1.4).
+
+3. 깨끗한 출발 — control DB 와 sniffer watermark 초기화:
+   ```bash
+   psql 'postgres://imgsync:imgsync@127.0.0.1:5433/imgsync?sslmode=disable' -c \
+     'TRUNCATE transfer_jobs, transfer_events RESTART IDENTITY CASCADE'
+   psql 'postgres://imgsync:imgsync@127.0.0.1:5433/imgsync?sslmode=disable' -c \
+     'TRUNCATE sniffer_state'
+
+   # dst 디렉토리 비움 (이전 run 의 결과 파일 잔재 제거)
+   kubectl -n imgsync-e2e-real run --rm -i --restart=Never \
+     --image=alpine:3.20 wipe-dst \
+     --overrides='{"spec":{"containers":[{"name":"w","image":"alpine:3.20","command":["sh","-c","rm -rf /srv/imgsync/dst && mkdir -p /srv/imgsync/dst && chown 65532:65532 /srv/imgsync/dst"],"volumeMounts":[{"name":"v","mountPath":"/srv/imgsync"}]}],"volumes":[{"name":"v","persistentVolumeClaim":{"claimName":"imgsync-localfs"}}]}}' \
+     --
+
+   kubectl -n imgsync-e2e-real rollout restart deploy/imgsync deploy/imgsync-sniffer
+   kubectl -n imgsync-e2e-real rollout status deploy/imgsync
+   kubectl -n imgsync-e2e-real rollout status deploy/imgsync-sniffer
+   ```
+
+4. source DB 에 schema + 1000 행 (`updated_at` 은 sniffer 의 `biasSec=5` 보다 큰 10초 전):
+   ```bash
+   psql 'postgres://source:source@127.0.0.1:5434/source?sslmode=disable' <<'SQL'
+   CREATE TABLE IF NOT EXISTS images (
+     id         BIGSERIAL PRIMARY KEY,
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     file_path  TEXT        NOT NULL
+   );
+   TRUNCATE images RESTART IDENTITY;
+   INSERT INTO images (updated_at, file_path)
+   SELECT NOW() - INTERVAL '10 seconds',
+          'file-' || lpad(i::text, 5, '0')
+     FROM generate_series(1, 1000) AS i;
+   SQL
+   ```
+
+5. drain 폴링 — sniffer interval=5s, 워커가 비울 때까지:
+   ```bash
+   while true; do
+     read ENQ PEN DEAD <<<$(psql -At -F' ' \
+       'postgres://imgsync:imgsync@127.0.0.1:5433/imgsync?sslmode=disable' -c "
+       SELECT count(*),
+              count(*) FILTER (WHERE status='pending'),
+              count(*) FILTER (WHERE status='dead')
+         FROM transfer_jobs")
+     echo "$(date +%T) enqueued=$ENQ pending=$PEN dead=$DEAD"
+     [ "$ENQ" -ge 1000 ] && [ "$PEN" -eq 0 ] && break
+     sleep 3
+   done
+   ```
+
+### 3.3 검증 체크리스트
+
+- [ ] `enqueued = 1000`
+  ```sql
+  SELECT count(*) FROM transfer_jobs;
+  ```
+- [ ] `count(distinct trace_id) = 1000`
+  ```sql
+  SELECT count(DISTINCT trace_id) FROM transfer_jobs;
+  ```
+- [ ] `dead = 0`
+  ```sql
+  SELECT count(*) FROM transfer_jobs WHERE status='dead';
+  ```
+- [ ] dst 가 shadow suffix 와 함께 실제 존재:
+  ```bash
+  kubectl -n imgsync-e2e-real run --rm -i --restart=Never \
+    --image=alpine:3.20 ls-shadow \
+    --overrides='{"spec":{"containers":[{"name":"l","image":"alpine:3.20","command":["sh","-c","ls /srv/imgsync/dst/file-00001.bin.imgsync_shadow_v1 2>&1 || echo MISSING"],"volumeMounts":[{"name":"v","mountPath":"/srv/imgsync"}]}],"volumes":[{"name":"v","persistentVolumeClaim":{"claimName":"imgsync-localfs"}}]}}' \
+    --
+  # 기대: 파일 한 줄 (size 1024 근처)
+  ```
+
+### 3.4 멱등성 확인 (선택)
+
+같은 source 데이터로 60초 더 기다린 뒤:
+
+```sql
+-- 새 잡이 안 생겼는가
+SELECT count(*) FROM transfer_jobs;   -- 여전히 1000
+-- 동일 trace_id 의 enqueue 이벤트가 1회뿐인가
+SELECT trace_id, count(*) FROM transfer_events
+ WHERE status='enqueue' GROUP BY trace_id HAVING count(*) > 1;
+-- 0 rows
+```
 
 ---
 
@@ -169,7 +271,7 @@ psql 'postgres://imgsync:imgsync@127.0.0.1:5433/imgsync?sslmode=disable' -c \
 
 kubectl -n imgsync-e2e-real run --rm -i --restart=Never \
   --image=alpine:3.20 wipe-dst \
-  --overrides='{"spec":{"containers":[{"name":"w","image":"alpine:3.20","command":["sh","-c","rm -rf /srv/imgsync/dst && mkdir -p /srv/imgsync/dst"],"volumeMounts":[{"name":"v","mountPath":"/srv/imgsync"}]}],"volumes":[{"name":"v","persistentVolumeClaim":{"claimName":"imgsync-localfs"}}]}}' \
+  --overrides='{"spec":{"containers":[{"name":"w","image":"alpine:3.20","command":["sh","-c","rm -rf /srv/imgsync/dst && mkdir -p /srv/imgsync/dst && chown 65532:65532 /srv/imgsync/dst"],"volumeMounts":[{"name":"v","mountPath":"/srv/imgsync"}]}],"volumes":[{"name":"v","persistentVolumeClaim":{"claimName":"imgsync-localfs"}}]}}' \
   --
 ```
 
@@ -182,6 +284,7 @@ kubectl -n imgsync-e2e-real run --rm -i --restart=Never \
 | pod ImagePullBackOff | ghcr.io 패키지가 private | `gh api -X PATCH /user/packages/container/imgsync/visibility -f visibility=public` |
 | pre-install Job 멈춤 | SA `imgsync` 누락 | `e2e-up-real.sh` Step 4 의 SA YAML 다시 apply |
 | 모든 잡 dead | `srcProtocol`/`dstProtocol` 가 `fs` | values-real.yaml 의 protocol 값을 `localfs` 로 |
+| 모든 잡 dead, `error=permission denied: /srv/imgsync/dst/.imgsync-*.tmp` | dst 디렉토리가 root 소유 (worker 는 uid 65532) | seeder Job 매니페스트의 `chown 65532:65532` 라인 적용됐는지 확인 — 오래된 fixture 면 alpine pod 로 `chown -R 65532:65532 /srv/imgsync/dst` 후 워커 재기동 |
 | sniffer enqueue 안 함 | `sniffer_state.last_updated_at` 미래 | `TRUNCATE sniffer_state` 후 sniffer pod 재기동 |
 | port-forward 끊김 | 포드 재기동 | port-forward 재실행 |
 | C7 ratio 낮음 | NFS 대역폭 한계 | 본 cluster 에서 C7 는 smoke 만 (3.2x 미달성 정상) — `dead = 0` 만 확인 |
