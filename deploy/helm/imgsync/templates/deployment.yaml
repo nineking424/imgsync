@@ -84,11 +84,17 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
         # readOnlyRootFilesystem=true forces /tmp to be a writable emptyDir
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
