@@ -34,6 +34,12 @@ spec:
               SRC=/srv/imgsync/src
               DST=/srv/imgsync/dst
               mkdir -p "$SRC" "$DST"
+              # Worker pods run as uid 65532 (chart's hardened securityContext).
+              # The seeder runs as alpine root, so the dirs/files it creates are
+              # root-owned by default — workers can read src files (mode 644 +
+              # dir 755), but cannot write to dst. chown both so workers can
+              # write shadow files and produce dst output.
+              chown -R 65532:65532 "$SRC" "$DST"
               echo "==> Seeding ${COUNT} files of ${SIZE_BYTES} bytes into ${SRC}"
               i=1
               while [ "$i" -le "${COUNT}" ]; do
