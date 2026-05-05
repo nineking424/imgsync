@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -116,3 +117,23 @@ func (m *Metrics) SetWorkersActive(pod string, n int) {
 func (m *Metrics) Handler() http.Handler {
 	return promhttp.HandlerFor(m.reg, promhttp.HandlerOpts{})
 }
+
+// AttachQueueDepth registers the jobs_in_status scrape collector. Idempotent:
+// safe to call once per pool. Panics on duplicate registration (caller bug).
+func (m *Metrics) AttachQueueDepth(pool *pgxpool.Pool) {
+	m.reg.MustRegister(newQueueDepthCollector(pool))
+}
+
+// AttachDBPool registers the db_pool_conns collector.
+func (m *Metrics) AttachDBPool(pool *pgxpool.Pool) {
+	m.reg.MustRegister(newDBPoolCollector(pool))
+}
+
+// AttachLeaseLockAge registers the lease_lock_age_seconds gauge.
+func (m *Metrics) AttachLeaseLockAge(pool *pgxpool.Pool) {
+	m.reg.MustRegister(newLeaseLockAge(pool))
+}
+
+// RegistryForTest exposes the underlying registry for assertions in tests
+// from external packages. Not for production code.
+func (m *Metrics) RegistryForTest() *prometheus.Registry { return m.reg }
