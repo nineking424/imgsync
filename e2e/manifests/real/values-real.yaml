@@ -1,0 +1,59 @@
+# Helm values overlay for the real-cluster e2e flow. Pair with bootstrap script
+# scripts/e2e-up-real.sh, which substitutes image.repository/tag from the
+# current git short-sha.
+#
+# Usage:
+#   helm upgrade --install imgsync deploy/helm/imgsync \
+#     --namespace imgsync-e2e-real \
+#     -f e2e/manifests/real/values-real.yaml \
+#     --set image.repository=ghcr.io/nineking424/imgsync \
+#     --set image.tag=e2e-<sha> \
+#     --wait --timeout 5m
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/nineking424/imgsync   # bootstrap overrides via --set
+  tag: e2e-PLACEHOLDER                       # bootstrap overrides via --set
+  pullPolicy: IfNotPresent
+
+# Mount the shared NFS PVC at /srv/imgsync for both worker and sniffer pods.
+# This is the cluster-side replacement for kind's hostPath extraMount.
+extraVolumes:
+  - name: localfs
+    persistentVolumeClaim:
+      claimName: imgsync-localfs
+extraVolumeMounts:
+  - name: localfs
+    mountPath: /srv/imgsync
+
+dsnSecretRef:
+  name: imgsync-dsn
+  key: dsn
+
+sniffer:
+  enabled: true
+  replicas: 1
+  config:
+    sourceID: "main-source-db.images"
+    table: "images"
+    pkColumn: "id"
+    tsColumn: "updated_at"
+    extraColumns: "file_path"
+    srcPattern: "/srv/imgsync/src/{{.file_path}}.bin"
+    dstPattern: "/srv/imgsync/dst/{{.file_path}}.bin"
+    srcProtocol: "localfs"
+    dstProtocol: "localfs"
+    shadow: true
+    batchSize: "500"
+    biasSec: "5"
+    intervalSec: "5"          # tight loop for C5' scenario
+  secrets:
+    sourceDSNSecretRef: imgsync-source-dsn
+    imgsyncDSNSecretRef: imgsync-db-dsn
+
+worker:
+  workers: 4
+  ftpHostMaxConns: 8
+  ftpHostPoolMaxIdle: 5
+  ftpHostPoolIdleTTL: "5m"

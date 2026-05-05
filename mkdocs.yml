@@ -12,6 +12,8 @@ strict: true
 exclude_docs: |
   superpowers/
   README.md
+  test-reports/
+  e2e-real-cluster-guide.md
 
 theme:
   name: material

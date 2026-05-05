@@ -1,0 +1,18 @@
+# Shared volume that both worker pods (rwx) and the seeder Job mount.
+# Worker pods see this at /srv/imgsync (matching kind's hostPath mount); the
+# seeder Job uses the same path. NFS subdir provisioner gives us RWX trivially
+# (each PVC is a subdir of the NFS export), so multiple replicas mounting
+# concurrently is fine.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: imgsync-localfs
+  namespace: imgsync-e2e-real
+  labels:
+    app.kubernetes.io/part-of: imgsync-e2e
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 20Gi   # C7 needs ~1GB (1MB × 1000); 20Gi gives headroom for re-runs

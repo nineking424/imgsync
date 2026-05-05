@@ -10,6 +10,9 @@ title: E2E 매뉴얼 검증 가이드
 따라가며 동일한 불변식(invariant)을 직접 확인하는 절차다. 자동 테스트를 못 돌리는
 환경 (CI 토큰 만료, 격리망, 인프라 실험) 또는 새 시나리오를 시운전할 때 쓴다.
 
+> **실제 K8s 클러스터에서 검증하려면** 리포 내 [`docs/e2e-real-cluster-guide.md`](https://github.com/nineking424/imgsync/blob/main/docs/e2e-real-cluster-guide.md)
+> 를 참고할 것. NFS PVC + ghcr.io 기반의 자매 가이드다 (사이트에는 미공개, 리포 내부 산출물).
+
 각 시나리오 끝의 **검증 체크리스트**를 모두 통과하면 자동 테스트의 PASS 와 동치다.
 하나라도 실패하면 회귀(regression) 의심하고 보고할 것.
 

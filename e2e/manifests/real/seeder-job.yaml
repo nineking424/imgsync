@@ -1,0 +1,69 @@
+# One-shot Job that seeds N fixture files into the shared imgsync-localfs PVC,
+# then exits. Replaces kind's host-mounted /tmp/imgsync-e2e-localfs trick.
+#
+# Behavior matches e2e/helpers.go:seedFixtures():
+#   - Files are /srv/imgsync/src/file-NNNNN.bin
+#   - Filled with a repeating 1MB chunk of bytes (i % 256), truncated at SIZE_BYTES
+#   - Idempotent: skips files that already exist (so re-runs are cheap)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: imgsync-seeder
+  namespace: imgsync-e2e-real
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: imgsync-seeder
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seeder
+          image: alpine:3.20
+          env:
+            - name: COUNT
+              value: "1000"
+            - name: SIZE_BYTES
+              value: "1024"   # 1 KB default; override to 1048576 (1 MB) for C7
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              SRC=/srv/imgsync/src
+              DST=/srv/imgsync/dst
+              mkdir -p "$SRC" "$DST"
+              # Worker pods run as uid 65532 (chart's hardened securityContext).
+              # The seeder runs as alpine root, so the dirs/files it creates are
+              # root-owned by default — workers can read src files (mode 644 +
+              # dir 755), but cannot write to dst. chown both so workers can
+              # write shadow files and produce dst output.
+              chown -R 65532:65532 "$SRC" "$DST"
+              echo "==> Seeding ${COUNT} files of ${SIZE_BYTES} bytes into ${SRC}"
+              i=1
+              while [ "$i" -le "${COUNT}" ]; do
+                f="$(printf '%s/file-%05d.bin' "$SRC" "$i")"
+                if [ ! -f "$f" ]; then
+                  # /dev/urandom would dirty page cache; /dev/zero is fine for tests.
+                  # bs is bytes; round SIZE_BYTES up to a 1KB block, dd handles padding.
+                  blocks=$(( SIZE_BYTES / 1024 ))
+                  if [ "$blocks" -eq 0 ]; then blocks=1; fi
+                  dd if=/dev/zero of="$f" bs=1024 count="$blocks" status=none
+                fi
+                if [ $((i % 100)) -eq 0 ]; then
+                  echo "  seeded $i / ${COUNT}"
+                fi
+                i=$((i + 1))
+              done
+              echo "==> Seeding complete: $(ls "$SRC" | wc -l) files in $SRC"
+          volumeMounts:
+            - name: localfs
+              mountPath: /srv/imgsync
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits:   { cpu: 1000m, memory: 256Mi }
+      volumes:
+        - name: localfs
+          persistentVolumeClaim:
+            claimName: imgsync-localfs
