@@ -12,7 +12,7 @@
 | `internal/sources` | `Source` 구현체 (`localfs`, `ftp`, …). |
 | `internal/transports` | `Transport` 구현체. 특히 `transports/ftp/pool.go` 에 호스트별 커넥션 풀이 있다. |
 | `internal/sniffer` | source DB 의 `updated_at` 윈도우를 폴링해서 잡을 enqueue 한다. |
-| `internal/sweeper` | leased 인 채로 멎은 잡을 회수해 `queued` 로 되돌린다. advisory lock 으로 다중 인스턴스 안전. |
+| `internal/sweeper` | leased 인 채로 멎은 잡을 회수해 `pending` 으로 되돌린다. advisory lock 으로 cycle 마다 한 pod 만 회수 작업을 수행. |
 | `internal/db` | pgx 연결 풀, 마이그레이션 러너, schema 상수. |
 | `internal/health` | `/healthz` / `/readyz` 핸들러와 헬스 시그널. |
 | `internal/hostcap` | FTP 같은 외부 호스트의 동시 접속 상한을 advisory lock 으로 강제한다. |

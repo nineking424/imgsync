@@ -604,4 +604,4 @@ sudo rm -rf /tmp/imgsync-e2e-localfs
 - 자동 E2E 의 정확한 SQL/타이밍은 `e2e/helpers.go`, `e2e/{sniffer,dirty_state,throughput}_test.go` 가
   최종 진실이다. 본 문서의 SQL 은 거기서 그대로 추출/번역한 것.
 - 오퍼레이터 일상 운영은 [운영 런북](../operating/runbook.md) 참고.
-- 최근 자동 E2E 결과 (2026-05-01 기준 `a69bcb0`): 리포 내 `docs/test-reports/2026-05-01-imgsync-a69bcb0.md` (별도 산출물).
+- 최근 자동 E2E 결과는 CI 산출물 / 별도 보고서로 관리되며 본 리포에는 포함되지 않는다. 직접 재현하려면 위 §1–§8 의 절차를 그대로 따른다.

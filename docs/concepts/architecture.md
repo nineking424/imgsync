@@ -67,7 +67,7 @@ Worker 가 소스에서 스트림을 열고 목적지로 전송합니다.
 
 ## 장애 / 동시성 모델
 
-DB 가 단일 source of truth 입니다. 워커는 완전히 stateless — 어느 파드든 재시작해도 DB 상태만 보면 됩니다. Sweeper 가 안전망 역할을 해서, 임의 이유로 워커가 죽어 lease 가 방치된 경우 threshold(기본 5분) 이후 `pending` 으로 되돌립니다. Sniffer 와 Sweeper 는 각각 PostgreSQL `pg_try_advisory_lock` 기반 advisory lock 으로 클러스터 전체에서 단일 리더만 동작하도록 보장합니다. `replicaCount > 1` 이어도 두 컴포넌트가 중복 실행되는 일은 없습니다.
+DB 가 단일 source of truth 입니다. 워커는 완전히 stateless — 어느 파드든 재시작해도 DB 상태만 보면 됩니다. Sweeper 가 안전망 역할을 해서, 임의 이유로 워커가 죽어 lease 가 방치된 경우 threshold(기본 5분) 이후 `pending` 으로 되돌립니다. Sweeper goroutine 은 모든 worker pod 에서 돌지만 매 cycle 시작 시 `pg_try_advisory_xact_lock` 으로 한 pod 만 실제 회수 작업을 하므로 중복 회수가 발생하지 않습니다. Sniffer 는 v1 에서 단일 인스턴스만 지원합니다 — Helm chart 가 `sniffer.replicas > 1` 을 거부하고 `strategy: Recreate` 로 두 인스턴스 공존을 막습니다 (sniffer 의 watermark 경합 방지는 v2 과제).
 
 ## 확장 포인트
 

@@ -52,7 +52,7 @@ kubectl -n imgsync port-forward svc/imgsync 8080:8080
 curl localhost:8080/healthz | jq
 ```
 
-`/healthz` 응답이 `{"status":"ok"}` 형태면 정상이다.
+응답에 `last_lease_attempt_ts`, `last_sweep_ts`, `pool_in_use` 등의 필드가 보이고 `last_sweep_ts` 가 최근(≤ 60초) 갱신되고 있으면 정상이다 — 응답 구조의 자세한 의미는 [모니터링](../operating/monitoring.md#healthz-응답-구조) 을 참고. 단순히 살아있는지만 확인하려면 `curl -fsS localhost:8080/livez` 가 200 을 돌려주는지 본다.
 
 ---
 
