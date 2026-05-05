@@ -89,3 +89,17 @@ e2e-sniffer: ## Run sniffer C5' E2E (kind cluster required)
 .PHONY: test-integration-sniffer
 test-integration-sniffer: ## Run sniffer integration tests S0-S3 (requires Docker)
 	go test -tags integration -timeout 5m -run "TestS[0-3]_" -v ./internal/sniffer/
+
+docs-install: ## docs 빌드 의존성 설치 (venv 권장)
+	pip install -r requirements-docs.txt
+
+docs-serve: ## 로컬 라이브 미리보기 (http://localhost:8000)
+	mkdocs serve --strict
+
+docs-build: ## 정적 사이트 빌드 (--strict, 링크/레퍼런스 깨지면 실패)
+	mkdocs build --strict
+
+docs-clean:
+	rm -rf site/
+
+.PHONY: docs-install docs-serve docs-build docs-clean
