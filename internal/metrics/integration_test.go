@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -112,7 +111,6 @@ func TestLeaseLockAge_IsZeroWhenNoLeasedRows(t *testing.T) {
 	if !found {
 		t.Fatalf("lease_lock_age_seconds not exposed")
 	}
-	_ = prometheus.NewRegistry // keep import live in case future tests need it
 }
 
 func TestDBPoolCollector_ExposesInUseIdleMax(t *testing.T) {
