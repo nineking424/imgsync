@@ -24,5 +24,5 @@ func New() *Metrics {
 
 // Handler returns the HTTP handler that serves the metrics in this registry.
 func (m *Metrics) Handler() http.Handler {
-	return promhttp.HandlerFor(m.reg, promhttp.HandlerOpts{Registry: m.reg})
+	return promhttp.HandlerFor(m.reg, promhttp.HandlerOpts{})
 }
