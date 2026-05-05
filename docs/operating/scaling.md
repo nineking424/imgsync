@@ -17,6 +17,17 @@ helm upgrade imgsync deploy/helm/imgsync \
 2. 한 pod 에 port-forward 해서 `/healthz` 의 `last_lease_success_ts` 가 신선해지는지 확인한다 — [모니터링](monitoring.md#healthz-응답-구조).
 3. `transfer_jobs` 의 `pending` 카운트가 단조 감소로 돌아서는지 — [런북 §7](runbook.md#7-sql) 의 상태별 카운트 SQL 참고.
 
+같은 신호를 Prometheus 로 보고 있다면 SQL 폴링 대신 PromQL 로 동일 결과를 얻을 수 있다.
+
+| SQL 신호 | PromQL 대체 |
+|---|---|
+| `SELECT status, count(*) FROM transfer_jobs WHERE status='pending'` | `imgsync_jobs_in_status{status="pending"}` |
+| `last_lease_success_ts` 가 늦어짐 | `(time() - imgsync_workers_active offset 1m) > 0` 가 아닌, `rate(imgsync_lease_attempts_total{result="success"}[5m])` 가 0 으로 떨어지는지 |
+| 풀 포화 (healthz 의 `pool_in_use ≈ pool_max`) | `imgsync_db_pool_conns{state="in_use"} / imgsync_db_pool_conns{state="max"} > 0.9` |
+| FTP host cap 적중 빈도 | `sum by (host) (imgsync_ftp_pool_size{state="in_use"})` 가 `ftpHostMaxConns` 에 붙어 있는지 |
+
+스케일 결정에 쓰는 신호이므로 **임계값과 지속시간(for=10m) 을 묶어 알람으로 거는 것을 권장한다.** 임계 후보 목록은 [모니터링 — 권장 알람](monitoring.md#권장-알람) 을 본다.
+
 스케일 업 자체는 무중단이다. 새 pod 는 기존 pod 와 동일한 lease 루프를 돌 뿐이며, `SELECT FOR UPDATE SKIP LOCKED` 가 중복 처리를 막는다.
 
 ## per-pod `IMGSYNC_WORKERS` vs replicaCount 트레이드오프
