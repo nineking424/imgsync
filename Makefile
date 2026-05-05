@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 IMAGE   ?= imgsync:$(VERSION)
 
-.PHONY: build test lint streaming-check tidy ci
+.PHONY: build test lint streaming-check tidy fmt-check ci
 
 build:
 	go build -o bin/imgsync ./cmd/imgsync
@@ -15,10 +15,18 @@ lint:
 streaming-check:
 	./scripts/check-streaming.sh
 
+fmt-check:
+	@diff=$$(gofmt -l .); \
+	if [ -n "$$diff" ]; then \
+		echo "gofmt violations (run 'gofmt -w .'):"; \
+		echo "$$diff"; \
+		exit 1; \
+	fi
+
 tidy:
 	go mod tidy
 
-ci: lint streaming-check test
+ci: fmt-check lint streaming-check test
 
 .PHONY: docker-build
 docker-build: ## Build the production container image
