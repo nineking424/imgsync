@@ -35,7 +35,11 @@ helm upgrade --install imgsync deploy/helm/imgsync \
 ```
 
 !!! warning "0.x 차트에서 올리는 경우"
-    chart 1.0 에서 worker / sniffer 의 selector 라벨이 변경됐다. 같은 릴리스를 0.x 에서 그대로 `helm upgrade` 하면 `field is immutable` 로 실패한다. 절차는 [업그레이드 · 롤백 — 차트 스키마 break](../operating/upgrades-and-rollback.md#차트-스키마-break-selector-라벨-변경-chart-10) 를 본다. 새 설치는 영향 없다.
+    Chart 1.0 부터 Worker Deployment 의 selector 라벨이
+    `app.kubernetes.io/component=worker` 로 바뀌었다. Kubernetes 가
+    selector 변경을 거부하므로, 0.x 에서 1.0+ 으로 올리려면
+    Worker Deployment 만 선삭제 후 재설치해야 한다. 자세한 절차는
+    [업그레이드 — selector 라벨 변경](../operating/upgrades-and-rollback.md#차트-스키마-break-selector-라벨-변경-chart-10) 을 본다.
 
 설치 직후 `pre-install` hook으로 `imgsync-migrate` Job이 자동 실행된다. 이 Job은 DB 스키마 마이그레이션을 수행하며, 완료될 때까지 워커 파드 기동이 대기된다.
 
@@ -61,29 +65,22 @@ curl localhost:8080/healthz | jq
 
 ## Step 4: 메트릭 노출 확인 (옵션)
 
-차트가 worker 와 sniffer 모두 `:8080/metrics` 에 Prometheus 메트릭을 노출하므로, 클러스터에 Prometheus Operator 가 있다면 `ServiceMonitor` 를 함께 켜는 것이 표준 절차다.
+기본 차트는 `monitoring.serviceMonitor.enabled=false` 이므로 ServiceMonitor 가 만들어지지 않는다. 메트릭만 검증하려면 port-forward 로 직접 긁는다.
 
 ```bash
-helm upgrade --install imgsync deploy/helm/imgsync \
-  -n imgsync --reuse-values \
+kubectl -n imgsync port-forward deploy/imgsync 8080:8080
+curl -s http://localhost:8080/metrics | grep imgsync_jobs_processed_total
+```
+
+Prometheus Operator 와 통합하려면 ServiceMonitor 만 켠다.
+
+```bash
+helm upgrade imgsync deploy/helm/imgsync \
+  --reuse-values \
   --set monitoring.serviceMonitor.enabled=true
 ```
 
-확인:
-
-```bash
-# port-forward 로 raw metrics 가 나오는지 확인
-kubectl -n imgsync port-forward svc/imgsync 8080:8080 &
-curl -s localhost:8080/metrics | head
-# imgsync_jobs_in_status{...} 같은 라인이 보이면 OK
-
-# ServiceMonitor 가 렌더됐는지 확인 (Operator 가 있을 때만)
-kubectl -n imgsync get servicemonitor imgsync
-```
-
-`monitoring.serviceMonitor.enabled=true` 인데 `monitoring.coreos.com/v1` CRD 가 없는 클러스터에서는 ServiceMonitor 리소스가 생성되지 않는다 (차트가 capability check 로 조용히 스킵).
-
-전체 메트릭 카탈로그와 알람 후보는 [운영 — 모니터링](../operating/monitoring.md) 을 본다. Grafana 대시보드 import 절차는 [운영 — 대시보드](../operating/dashboards.md) 에 있다.
+전체 메트릭 카탈로그와 알람 후보는 [운영 — 모니터링](../operating/monitoring.md#메트릭-카탈로그) 을 본다. Grafana 대시보드 import 절차는 [운영 — 대시보드](../operating/dashboards.md) 에 있다.
 
 ---
 
