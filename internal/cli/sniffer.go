@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nineking424/imgsync/internal/health"
+	"github.com/nineking424/imgsync/internal/metrics"
 	"github.com/nineking424/imgsync/internal/sniffer"
 	"github.com/nineking424/imgsync/internal/sourcedb"
 )
@@ -108,6 +111,24 @@ func RunSniffer(ctx context.Context, cfg SnifferConfig) error {
 	}
 	defer imgPool.Close()
 
+	m := metrics.New()
+	m.AttachQueueDepth(imgPool)
+	m.AttachDBPool(imgPool)
+	// lease lock age is the worker's responsibility; not exposed by the sniffer.
+
+	healthAddr := os.Getenv("SNIFFER_HEALTH_ADDR")
+	if healthAddr == "" {
+		healthAddr = ":8080"
+	}
+	ln, err := net.Listen("tcp", healthAddr)
+	if err != nil {
+		return fmt.Errorf("sniffer health listen: %w", err)
+	}
+	status := health.NewStatus() // sniffer never updates lease/sweep TS — empty status is fine
+	hs := health.NewServer(imgPool, status, health.WithMetrics(m.Handler()))
+	go func() { _ = hs.Serve(ln) }()
+	defer hs.Close()
+
 	s := sniffer.New(sniffer.Config{
 		SourceID: cfg.SourceID,
 		Query: sniffer.Query{
@@ -124,6 +145,8 @@ func RunSniffer(ctx context.Context, cfg SnifferConfig) error {
 		DstProtocol: cfg.DstProtocol,
 		ImgsyncPool: imgPool,
 		SourcePool:  srcPool.Pool,
+		OnEnqueue:   m.OnSnifferEnqueue,
+		OnError:     m.OnSnifferError,
 	})
 
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
