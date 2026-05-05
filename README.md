@@ -40,7 +40,7 @@ The chart's pre-install hook runs migrations idempotently.
 
 ### Operator runbook
 
-See [`docs/runbook.md`](docs/runbook.md).
+See [`docs/operating/runbook.md`](docs/operating/runbook.md).
 
 ## Make targets
 
