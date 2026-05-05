@@ -1,16 +1,9 @@
----
-title: imgsync
-hide:
-  - navigation
----
-
 # imgsync
 
 **Go + PostgreSQL 기반 파일 전송 작업 큐.**
 사내 NiFi 파이프라인을 대체하기 위해 만든, 끊김 없는 대량 파일 전송용 워커 시스템.
 
-[5분 안에 시작하기 →](getting-started/quickstart-docker-compose.md){ .md-button .md-button--primary }
-[운영 런북 →](operating/runbook.md){ .md-button }
+➡️ [5분 안에 시작하기](getting-started/quickstart-docker-compose.md) · [운영 런북](operating/runbook.md)
 
 ## 무엇을 해결하나
 
@@ -21,27 +14,11 @@ hide:
 
 ## 누가 쓰나
 
-<div class="grid cards" markdown>
-
--   :material-server-network: __Operator__
-
-    Helm 으로 클러스터에 배포하고, 작업이 막혔을 때 SQL 한 줄로 원인을 찾는 사람.
-
-    [→ 운영 가이드](operating/index.md)
-
--   :material-database-import: __Integrator__
-
-    DB 의 작업 목록을 imgsync 큐로 흘려보내거나, 새로운 Source / Transport 를 붙이는 사람.
-
-    [→ Sniffer 설정](configuration/sniffer.md)
-
--   :material-code-tags: __Contributor__
-
-    코어 워커 / sweeper 를 고치거나, 새 프로토콜을 구현하는 사람.
-
-    [→ 개발 가이드](developer/index.md)
-
-</div>
+| 역할 | 설명 | 시작 페이지 |
+|---|---|---|
+| **Operator** | Helm 으로 클러스터에 배포하고, 작업이 막혔을 때 SQL 한 줄로 원인을 찾는 사람. | [→ 운영 가이드](operating/index.md) |
+| **Integrator** | DB 의 작업 목록을 imgsync 큐로 흘려보내거나, 새 Source / Transport 를 붙이는 사람. | [→ Sniffer 설정](configuration/sniffer.md) |
+| **Contributor** | 코어 워커 / sweeper 를 고치거나, 새 프로토콜을 구현하는 사람. | [→ 개발 가이드](developer/index.md) |
 
 ## 핵심 개념 한눈에
 
