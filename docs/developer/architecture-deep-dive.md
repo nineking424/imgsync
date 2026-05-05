@@ -69,7 +69,7 @@ func slotKey(host string, slot int) string {
 ```
 
 - 키는 호스트 + 슬롯 번호의 조합. 슬롯 0 .. N-1 을 순회하며 첫 성공한 슬롯을 점유한다.
-- `pg_advisory_lock` (세션 스코프, 별도 pgx 커넥션에 핀 고정) 이라 `Send` 가 끝날 때까지 유지된다. `defer pg_advisory_unlock` 으로 풀어준다.
+- `pg_try_advisory_lock` (세션 스코프, 별도 pgx 커넥션에 핀 고정) 으로 비동기 시도 — 실패하면 `false` 를 반환하고 다음 슬롯을 시도한다. 잡힌 lock 은 `Send` 가 끝날 때까지 유지되고 `defer pg_advisory_unlock` 으로 풀어준다.
 - 결과적으로 같은 FTP 호스트에 대한 동시 업로드 수가 클러스터 전역에서 N 으로 묶인다. 워커 파드 수와 무관.
 
 ## 스트리밍 가드
