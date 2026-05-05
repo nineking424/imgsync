@@ -102,6 +102,10 @@ e2e-seed-real: ## Seed fixture files into the real-cluster localfs PVC (defaults
 test-integration-sniffer: ## Run sniffer integration tests S0-S3 (requires Docker)
 	go test -tags integration -timeout 5m -run "TestS[0-3]_" -v ./internal/sniffer/
 
+.PHONY: test-integration-metrics
+test-integration-metrics: ## Run metrics scrape collector integration tests
+	go test -tags integration -timeout 5m -v ./internal/metrics/
+
 .PHONY: e2e-push-real
 e2e-push-real: ## Build and push imgsync image to ghcr.io for real-cluster e2e
 	./scripts/e2e-image-push.sh

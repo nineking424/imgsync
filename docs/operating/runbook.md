@@ -177,6 +177,16 @@ SELECT date_trunc('minute', e.ts) AS bucket, COUNT(*) AS enqueued
  GROUP BY 1 ORDER BY 1 DESC;
 ```
 
+### 메트릭 기반 알람 매트릭스
+
+위 SQL 컬렉션과 같은 신호를 Prometheus 로 보고 있다면 다음 쿼리로 알람을 건다.
+
+| 증상 | 메트릭 query | 대응 |
+|---|---|---|
+| 큐 적체 | `imgsync_jobs_in_status{status="pending"}` 가 SLO 초과 | worker 스케일 / sniffer 폭주 확인 |
+| Stuck lease | `imgsync_lease_lock_age_seconds > sweeperThreshold` | sweeper 동작 확인 (`imgsync_sweep_cycles_total` rate) |
+| 실패 폭증 | `rate(imgsync_jobs_processed_total{result="fail"}[5m])` 급증 | `transfer_events` SQL 로 detail 조사 |
+
 ## 8. Incident response 템플릿 (5 whys) {#8-incident}
 
 장애를 닫을 때 한 페이지로 적어 둔다. 5 Whys 의 핵심은 "사람"이 아니라 "시스템 안의 약한 보호장치"를 찾는 것이다.

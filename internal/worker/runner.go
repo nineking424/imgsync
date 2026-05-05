@@ -35,6 +35,10 @@ type Runner struct {
 	// row was acquired and dispatched; success=false means empty queue or
 	// transient DB error. Optional; nil-safe.
 	OnLeaseAttempt func(success bool)
+	// OnWorkerStart / OnWorkerStop are invoked when a worker goroutine enters /
+	// leaves its loop. Both nil-safe. Used by metrics wiring.
+	OnWorkerStart func(pod string)
+	OnWorkerStop  func(pod string)
 }
 
 // Run blocks until ctx is cancelled.
@@ -62,6 +66,8 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) loop(ctx context.Context, idx int) {
+	r.emitStart()
+	defer r.emitStop()
 	lockedBy := fmt.Sprintf("%s-w%d", r.PodName, idx)
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -127,5 +133,16 @@ func (r *Runner) loop(ctx context.Context, idx int) {
 func (r *Runner) fire(job *Job) {
 	if r.OnFinish != nil {
 		r.OnFinish(job)
+	}
+}
+
+func (r *Runner) emitStart() {
+	if r.OnWorkerStart != nil {
+		r.OnWorkerStart(r.PodName)
+	}
+}
+func (r *Runner) emitStop() {
+	if r.OnWorkerStop != nil {
+		r.OnWorkerStop(r.PodName)
 	}
 }

@@ -4,12 +4,14 @@ metadata:
   name: {{ include "imgsync.fullname" . }}
   labels:
     {{- include "imgsync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
 spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ .Values.service.port }}
       targetPort: health
       protocol: TCP
-      name: health
+      name: http-metrics
   selector:
     {{- include "imgsync.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: worker

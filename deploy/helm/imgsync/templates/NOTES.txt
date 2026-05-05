@@ -27,3 +27,21 @@ To audit a single job (one-line SQL):
     FROM transfer_jobs j LEFT JOIN transfer_events e ON j.id = e.job_id
    WHERE j.trace_id='<id>' AND j.dst='<url>'
    ORDER BY e.ts;
+
+UPGRADE CAVEAT (chart {{ .Chart.Version }}):
+
+  This release adds `app.kubernetes.io/component` to the selector
+  (Deployment.spec.selector.matchLabels) of both the worker and the
+  sniffer. Deployment.spec.selector is immutable after creation, so
+  `helm upgrade` from a chart version that did not set this label
+  will fail with: "field is immutable".
+
+  To upgrade an existing install, first delete the existing
+  Deployments (PVCs/Services/ConfigMaps are unaffected):
+
+    kubectl --namespace {{ .Release.Namespace }} delete deploy \
+      {{ include "imgsync.fullname" . }} \
+      {{ include "imgsync.fullname" . }}-sniffer
+
+  Then re-run `helm upgrade`. Alternatively, `helm uninstall` and
+  reinstall. New installs are unaffected.

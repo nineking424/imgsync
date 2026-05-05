@@ -6,12 +6,14 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/db"
 	"github.com/nineking424/imgsync/internal/health"
 	"github.com/nineking424/imgsync/internal/hostcap"
+	"github.com/nineking424/imgsync/internal/metrics"
 	srcftp "github.com/nineking424/imgsync/internal/sources/ftp"
 	"github.com/nineking424/imgsync/internal/sources/localfs"
 	"github.com/nineking424/imgsync/internal/sweeper"
@@ -47,12 +49,18 @@ func newWorkerCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
+			m := metrics.New()
+			m.AttachQueueDepth(pool)
+			m.AttachDBPool(pool)
+			m.AttachLeaseLockAge(pool)
+
 			ftpPool := pftp.NewPool(pftp.PoolConfig{
 				MaxPerHost:   envInt("IMGSYNC_FTP_MAX_PER_HOST", 4),
 				IdleTTL:      time.Duration(envInt("IMGSYNC_FTP_IDLE_TTL_SEC", 300)) * time.Second,
 				NoopAfter:    time.Duration(envInt("IMGSYNC_FTP_NOOP_AFTER_SEC", 60)) * time.Second,
 				AuthUser:     os.Getenv("IMGSYNC_FTP_USER"),
 				AuthPassword: os.Getenv("IMGSYNC_FTP_PASSWORD"),
+				OnPoolChange: m.OnFTPPoolChange,
 			})
 			defer ftpPool.Close()
 
@@ -101,7 +109,7 @@ func newWorkerCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hs := health.NewServer(pool, status)
+			hs := health.NewServer(pool, status, health.WithMetrics(m.Handler()))
 			go func() { _ = hs.Serve(ln) }()
 			defer hs.Close()
 
@@ -109,11 +117,32 @@ func newWorkerCmd() *cobra.Command {
 				_ = sweeper.Run(ctx, pool, sweeper.Config{
 					Threshold: 5 * time.Minute,
 					Interval:  30 * time.Second,
-					OnCycle:   status.OnSweepCycle,
+					OnCycle: func() {
+						status.OnSweepCycle()
+						m.OnSweepCycle()
+					},
 				})
 			}()
 
-			r.OnLeaseAttempt = status.OnLeaseAttempt
+			// Compose: status (existing) + metrics (new). Domain calls a single
+			// callback; chaining keeps the runner ignorant of multiple consumers.
+			var workersGauge int32
+			r.OnLeaseAttempt = func(success bool) {
+				status.OnLeaseAttempt(success)
+				// worker has no err in this signature; lease errors are logged separately.
+				m.OnLeaseAttempt(success, nil)
+			}
+			r.OnFinish = func(j *worker.Job) {
+				m.OnJobFinished(j.SrcProtocol, j.DstProtocol, j.Status, j.Duration())
+			}
+			r.OnWorkerStart = func(pod string) {
+				atomic.AddInt32(&workersGauge, 1)
+				m.SetWorkersActive(pod, int(atomic.LoadInt32(&workersGauge)))
+			}
+			r.OnWorkerStop = func(pod string) {
+				atomic.AddInt32(&workersGauge, -1)
+				m.SetWorkersActive(pod, int(atomic.LoadInt32(&workersGauge)))
+			}
 
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"imgsync worker starting: pod=%s workers=%d\n", podName, workers)

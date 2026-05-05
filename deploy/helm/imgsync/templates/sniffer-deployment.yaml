@@ -8,7 +8,7 @@ metadata:
   name: {{ include "imgsync.fullname" . }}-sniffer
   labels:
     {{- include "imgsync.labels" . | nindent 4 }}
-    component: sniffer
+    app.kubernetes.io/component: sniffer
 spec:
   replicas: {{ .Values.sniffer.replicas }}
   strategy:
@@ -16,7 +16,7 @@ spec:
   selector:
     matchLabels:
       {{- include "imgsync.selectorLabels" . | nindent 6 }}
-      component: sniffer
+      app.kubernetes.io/component: sniffer
   template:
     metadata:
       annotations:
@@ -26,13 +26,17 @@ spec:
         checksum/sniffer-config: {{ include (print $.Template.BasePath "/sniffer-configmap.yaml") . | sha256sum }}
       labels:
         {{- include "imgsync.selectorLabels" . | nindent 8 }}
-        component: sniffer
+        app.kubernetes.io/component: sniffer
     spec:
       containers:
         - name: sniffer
           image: {{ include "imgsync.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["sniffer"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
           envFrom:
             - configMapRef:
                 name: {{ include "imgsync.fullname" . }}-sniffer
@@ -47,6 +51,26 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.sniffer.secrets.imgsyncDSNSecretRef }}
                   key: SNIFFER_IMGSYNC_DSN
+            - name: SNIFFER_HEALTH_ADDR
+              value: ":8080"
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
           resources:
             {{- toYaml .Values.sniffer.resources | nindent 12 }}
           {{- with .Values.extraVolumeMounts }}

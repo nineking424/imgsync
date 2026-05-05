@@ -100,6 +100,7 @@ nav:
       - operating/index.md
       - 런북: operating/runbook.md
       - 모니터링: operating/monitoring.md
+      - 대시보드: operating/dashboards.md
       - 스케일링: operating/scaling.md
       - 업그레이드 · 롤백: operating/upgrades-and-rollback.md
       - 트러블슈팅: operating/troubleshooting.md

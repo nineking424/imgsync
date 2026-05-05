@@ -3,6 +3,7 @@ package ftp_test
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,6 +74,46 @@ func TestPool_MaxPerHost_BlocksUntilRelease(t *testing.T) {
 	defer cancel()
 	_, err := pool.Acquire(ctx, srv.Addr)
 	require.ErrorIs(t, err, context.DeadlineExceeded, "third acquire must block past cap")
+}
+
+func TestPool_OnPoolChangeFiresOnAcquireAndRelease(t *testing.T) {
+	type call struct {
+		host  string
+		inUse int
+		idle  int
+	}
+	var (
+		mu    sync.Mutex
+		calls []call
+	)
+	cb := func(host string, inUse, idle int) {
+		mu.Lock()
+		calls = append(calls, call{host, inUse, idle})
+		mu.Unlock()
+	}
+
+	srv := ftpserver.Start(t)
+	pool := pftp.NewPool(pftp.PoolConfig{
+		MaxPerHost:   2,
+		IdleTTL:      1 * time.Minute,
+		NoopAfter:    1 * time.Minute,
+		AuthUser:     srv.User,
+		AuthPassword: srv.Pass,
+		OnPoolChange: cb,
+	})
+	t.Cleanup(pool.Close)
+
+	pc, err := pool.Acquire(context.Background(), srv.Addr)
+	require.NoError(t, err)
+	pc.Release(false)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(calls), 2, "expected >=2 callback fires (acquire+release)")
+	last := calls[len(calls)-1]
+	require.Equal(t, srv.Addr, last.host)
+	require.Equal(t, 0, last.inUse, "after release: in_use should be 0")
+	require.Equal(t, 1, last.idle, "after release: idle should be 1")
 }
 
 func TestPool_IdleTTLExpiry_DiscardsConn(t *testing.T) {
