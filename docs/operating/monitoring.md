@@ -35,7 +35,7 @@ curl -s localhost:8080/healthz | jq
 
 | 필드 | 의미 | 정상 범위 (참고) |
 |---|---|---|
-| `last_lease_attempt_ts` | lease 쿼리를 마지막으로 시도한 시각 | idle backoff 최대 주기 이내 (보통 ≤ 30초) |
+| `last_lease_attempt_ts` | lease 쿼리를 마지막으로 시도한 시각 | ≤ 수 초 (idle backoff `MaxDelay` 기본 1초) |
 | `last_lease_success_ts` | 마지막으로 작업을 잡은 시각 | 큐에 작업이 있을 때 ≤ 수 초. 큐가 비면 자연스럽게 오래됨 |
 | `last_sweep_ts` | sweeper 가 마지막 사이클을 끝낸 시각 | ≤ 60초 (sweep interval = 30초) |
 | `pool_in_use` | 사용 중 pgx 커넥션 | `pool_max` 미만이면 정상 |
@@ -44,24 +44,25 @@ curl -s localhost:8080/healthz | jq
 
 알람 후보:
 
-- `now() - last_sweep_ts > 5분` → sweeper 가 멈췄거나 leader 락을 못 잡고 있다 → [런북 §3](runbook.md#3-stuck) 으로 점프.
+- `now() - last_sweep_ts > 5분` → 어느 pod 도 sweeper cycle 을 끝까지 돌지 못하고 있다 (advisory lock 으로 직렬화됨) → [런북 §3](runbook.md#3-stuck) 으로 점프.
 - `pool_in_use ≈ pool_max` 가 지속 → DB pool 포화. `IMGSYNC_WORKERS` / FTP host cap / DB max_connections 의 균형이 깨진 신호.
 - `now() - last_lease_attempt_ts > 60초` → worker 의 lease 루프가 멈춤. probe 가 통과하더라도 사실상 일을 안 하는 상태.
 
 ## 로그
 
-imgsync 워커 / sweeper 는 standard logger 로 표준출력에 라인을 흘린다. 운영에서 자주 보게 되는 키 이벤트와 의미는 다음과 같다 (정규식이 아니라 "이런 키워드가 들어 있다" 수준):
+imgsync 는 의도적으로 **로그가 적다**. 정상 동작은 `transfer_events` 테이블에 행으로 남고, 표준 에러로 흘리는 라인은 운영자의 주의가 필요한 예외 상황으로 한정된다.
 
-| 라인 키워드 | 컴포넌트 | 의미 |
-|---|---|---|
-| `lease loop started` | worker | 워커 goroutine 이 lease 루프 진입. pod 당 `IMGSYNC_WORKERS` 만큼 찍혀야 한다 |
-| `no jobs to lease` | worker | `pending` 행이 없어 idle backoff 대기. 큐가 비어 있을 때 정상 |
-| `lease acquired` | worker | `SELECT FOR UPDATE SKIP LOCKED` 로 한 행 잡음. 직후 `Source.Open → Transport.Send` 진입 |
-| `lease expired` | sweeper | sweep cycle 에서 5분 넘게 잡혀 있던 lease 를 회수. 일시적으로는 정상, 빈번하면 worker 가 죽어 있다는 신호 |
-| `sniffer enqueued N new jobs` | sniffer | 한 사이클에서 `transfer_jobs` 에 INSERT 된 행 수 |
-| `sniffer run error` | sniffer | sniffer 사이클이 실패. detail 에 source/transport 식별자가 붙는다 |
+| 라인 키워드 | 컴포넌트 | 의미 | 출처 |
+|---|---|---|---|
+| `imgsync worker: lease error (...)` | worker | `LeaseOne` DB 호출이 실패. 일시적이면 짧은 sleep 후 재시도, 반복되면 control DB 점검 신호 | `internal/worker/runner.go` |
+| `sweeper: cycle timeout (...)` | sweeper | sweep cycle 이 cycleTimeout 안에 끝나지 못함. lease 가 너무 많거나 DB 가 느린 신호 | `internal/sweeper/sweeper.go` |
+| `sweeper: cycle error: ...` | sweeper | sweep cycle 에서 DB 에러. 다음 tick 에서 재시도 | `internal/sweeper/sweeper.go` |
+| `sniffer enqueued N new jobs` | sniffer | 한 사이클에서 `transfer_jobs` 에 INSERT 된 행 수 (`log.Printf`) | `internal/cli/sniffer.go` |
+| `sniffer run error: ...` | sniffer | sniffer 사이클이 실패. source DB 또는 control DB 측 문제 가능성 | `internal/cli/sniffer.go` |
 
-JSON 구조 로그가 아니라 grep 으로 보는 사람-친화 라인이라는 점에 주의한다. 운영 환경에서 키-밸류 추출이 필요하면 sidecar (예: vector / fluent-bit) 로 후처리하는 것을 권장한다.
+**상태 추적은 로그가 아니라 DB.** lease/success/skip/fail 같은 상태 전이는 `transfer_events` 에 행으로 기록된다. lease 가 잡혔는지 / 워커가 일하고 있는지 확인하려면 [런북 §7](runbook.md#7-sql) 의 SQL 컬렉션 또는 [런북 §2](runbook.md#2-audit) 의 단일 작업 감사 쿼리를 사용한다.
+
+운영 환경에서 키-밸류 추출이 필요하면 sidecar (예: vector / fluent-bit) 로 후처리하는 것을 권장한다.
 
 ## 메트릭 (Prometheus)
 

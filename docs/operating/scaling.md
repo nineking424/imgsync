@@ -69,4 +69,4 @@ drain 없이 단순히 replicaCount 를 줄이는 경우라도, 손실되는 작
 
 ## PDB 와 함께 스케일 다운하기
 
-차트는 `podDisruptionBudget` 을 기본 활성화한다. `kubectl drain` 같은 voluntary disruption 시 PDB 를 위반하지 않도록 한 번에 빠지는 pod 수가 제한된다 — 의도된 동작이다. PDB 가 helm upgrade 진행을 막는 것 같으면 [트러블슈팅](troubleshooting.md) 의 "PDB 때문에 helm upgrade 가 진행되지 않음" 항목을 본다.
+차트는 `replicaCount >= 2` 일 때 PodDisruptionBudget 을 자동 렌더한다 (`pdb.maxUnavailable` 기본 1). `kubectl drain` 같은 voluntary disruption 시 PDB 를 위반하지 않도록 한 번에 빠지는 pod 수가 제한된다 — 의도된 동작이다. PDB 가 helm upgrade 진행을 막는 것 같으면 [트러블슈팅](troubleshooting.md) 의 "PDB 때문에 helm upgrade 가 진행되지 않음" 항목을 본다.

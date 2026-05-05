@@ -67,7 +67,7 @@ SELECT id, trace_id, locked_by, locked_at, NOW() - locked_at AS held_for
  ORDER BY locked_at;
 ```
 
-Sweeper 는 30초 주기로 돌면서 5분 넘게 잡혀 있는 lease 를 회수한다. 위 쿼리가 행을 반환하면 sweeper 가 죽었거나 leader 락을 못 잡고 있다는 신호다 — 리더 pod 의 로그를 확인하고, [§7 SQL 컬렉션](#7-sql) 의 `last_sweep_ts` 쿼리로 마지막 사이클 시각을 본다.
+Sweeper cycle 은 모든 pod 에서 돌지만 PostgreSQL advisory lock (`pg_try_advisory_xact_lock`) 으로 매 cycle 한 pod 만 실제 회수 작업을 수행한다 — 영구 leader 가 따로 있는 게 아니라 매 tick 마다 누가 lock 을 잡느냐로 결정된다. 위 쿼리가 행을 반환하면 어느 pod 도 cycle 을 끝까지 돌리지 못한다는 뜻이다. 모든 pod 의 stderr 에서 `sweeper: cycle timeout` / `sweeper: cycle error` 가 보이는지 확인하고, [§7 SQL 컬렉션](#7-sql) 의 `last_sweep_ts` 쿼리로 마지막 사이클 시각을 본다.
 
 ## 4. 스케일 업 / 다운 {#4-scale}
 
@@ -156,7 +156,7 @@ SELECT j.trace_id, j.dst, j.attempts, e.ts, e.detail
  LIMIT 50;
 ```
 
-`detail` 의 `stage` 필드가 `source-factory` / `transport-factory` / `open` / `send` 중 어디인지가 1차 분류 단서다.
+`detail` 의 `stage` 필드가 1차 분류 단서다. 실제로 코드가 emit 하는 값은 `source-factory` (source 인스턴스 생성 실패), `transport-factory` (transport 인스턴스 생성 실패), `open` (`Source.Open` 실패), `transport` (`Transport.Send` 실패), `verify` (size mismatch — 자주 보이는 terminal 사유), `source_close` (전송 후 source close 실패) 다.
 
 ### 마지막 sweep 사이클
 
@@ -167,7 +167,7 @@ SELECT MAX(e.ts) FROM transfer_events e WHERE e.status = 'expire';
 
 만약 ‘expire’ 이벤트가 없을 만큼 트래픽이 적다면 `/healthz` 의 `last_sweep_ts` 를 직접 본다 — [모니터링](monitoring.md#healthz-응답-구조) 참고.
 
-### Sniffer 큐 깊이 (과거 1시간 enqueue 추세)
+### Sniffer enqueue 추세 (과거 1시간)
 
 ```sql
 SELECT date_trunc('minute', e.ts) AS bucket, COUNT(*) AS enqueued

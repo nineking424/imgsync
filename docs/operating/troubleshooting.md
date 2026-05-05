@@ -31,7 +31,7 @@ SELECT id, locked_by, locked_at, NOW() - locked_at AS held_for
 
 `held_for` 가 5분이 한참 넘었는데도 행이 그대로면 sweeper 가 멈췄다는 신호.
 
-**조치.** [런북 §3](runbook.md#3-stuck) 절차로 점프. `/healthz` 의 `last_sweep_ts` 가 오래된 경우 leader 락을 잡고 있는 pod 를 찾아 재시작한다 (sweeper 는 pod 하나에서만 돈다).
+**조치.** [런북 §3](runbook.md#3-stuck) 절차로 점프. sweeper cycle 은 모든 pod 에서 돌며 advisory lock 으로 직렬화되므로 영구 leader 가 따로 없다. `/healthz` 의 `last_sweep_ts` 가 오래된 경우 모든 pod 의 stderr 에서 `sweeper: cycle timeout` / `sweeper: cycle error` 가 보이는지 확인한다.
 
 ## FTP 연결 실패가 반복됨
 
@@ -47,7 +47,7 @@ SELECT j.dst, e.detail, COUNT(*)
  ORDER BY 3 DESC;
 ```
 
-`detail` 의 `stage` 가 `source-factory` / `transport-factory` 면 인증 또는 connect 단계, `open` / `send` 면 데이터 전송 단계. 같은 host 가 반복되면 호스트 단위 문제.
+`detail` 의 `stage` 가 `source-factory` / `transport-factory` 면 인증 또는 connect 단계, `open` / `transport` 면 데이터 전송 단계, `verify` 면 size mismatch. 같은 host 가 반복되면 호스트 단위 문제.
 
 **조치.** 인증이면 `imgsync-ftp` Secret 갱신 후 pod 재시작. ACL 이면 네트워크팀과 협의. host cap 이 의심되면 [스케일링](scaling.md) 의 FTP host cap 절을 본다.
 
@@ -77,7 +77,7 @@ SELECT j.trace_id, j.dst, COUNT(*) AS enqueue_attempts
 **진단.**
 
 ```bash
-kubectl -n <ns> logs job/imgsync-migrate-<revision> --tail=200
+kubectl -n <ns> logs -l app.kubernetes.io/component=migrate --tail=200
 ```
 
 `pq: ... is being accessed by other users` 면 누가 advisory lock 을 잡고 있는 것. SQL 에러면 그대로 표시된다. ImagePullBackOff 면 `kubectl describe job` 의 events 를 본다.
@@ -110,7 +110,7 @@ kubectl -n <ns> get pdb,pods -l app.kubernetes.io/name=imgsync
 
 `ALLOWED DISRUPTIONS = 0` 이면 helm 이 새 pod 를 띄울 수 없는 상태. NotReady pod 가 있는지 같이 본다.
 
-**조치.** NotReady pod 의 원인을 먼저 푼다 (이미지 / readiness / DB ping). 진짜 stuck 이면 `kubectl delete pod --force` 로 강제 삭제한 뒤 helm upgrade 를 재시도한다. PDB 자체를 풀고 싶다면 차트 values 에서 `podDisruptionBudget.enabled=false` 로 한 번만 끄고, 그 위험성을 incident 로 기록한다.
+**조치.** NotReady pod 의 원인을 먼저 푼다 (이미지 / readiness / DB ping). 진짜 stuck 이면 `kubectl delete pod --force` 로 강제 삭제한 뒤 helm upgrade 를 재시도한다. 비상시 PDB 자체를 우회하려면 `--set replicaCount=1` 로 한 번 줄여 (chart 가 `replicaCount >= 2` 일 때만 PDB 를 렌더하므로 즉시 비활성화된다) 업그레이드 후 다시 늘리고, 그 위험성을 incident 로 기록한다.
 
 ## 디스크가 가득 차서 transport 가 죽음
 
