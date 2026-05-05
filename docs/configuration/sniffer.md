@@ -93,3 +93,39 @@ sniffer:
 - Sniffer 개념 → [../concepts/components.md](../concepts/components.md)
 - 전체 환경 변수 → [environment-variables.md](environment-variables.md)
 - 프로토콜 설정 → [protocols.md](protocols.md)
+
+## Health / Metrics 엔드포인트
+
+Sniffer 는 `SNIFFER_HEALTH_ADDR` (기본 `:8080`) 에 다음 엔드포인트를 노출합니다. Helm 차트는 이 주소를 자동으로 설정하고 컨테이너에 `livenessProbe` / `readinessProbe` / `startupProbe` 를 붙입니다.
+
+| 경로 | 용도 | 응답 |
+|---|---|---|
+| `/livez` | 프로세스 liveness | 항상 `200 OK`. 응답 자체가 안 나오면 deadlock 으로 본다. |
+| `/readyz` | 트래픽 ready | source DB / control DB ping 이 2초 안에 성공하면 `200`, 그렇지 않으면 `503`. |
+| `/metrics` | Prometheus scrape | sniffer push 메트릭 (`imgsync_sniffer_enqueue_total{source}`, `imgsync_sniffer_run_errors_total{source}`) + Go runtime 기본 메트릭. |
+
+`SNIFFER_HEALTH_ADDR` 는 `:port` 또는 `host:port` 형식을 받습니다. 비워두면 핸들러가 등록되지 않아 probe 가 실패하므로 운영 환경에서는 항상 비워두지 않습니다.
+
+> Helm 차트는 `containerPort: 8080` 을 노출하고 `imgsync-sniffer` Service 에 `port-name: http-metrics` 를 매핑합니다. ServiceMonitor 가 이 포트 이름으로 scrape 하므로 차트 외부에서 포트를 임의로 바꾸면 메트릭 수집이 끊깁니다.
+
+샘플:
+
+```bash
+# 로컬에서 sniffer 단독으로 띄우고 /metrics 확인
+SNIFFER_HEALTH_ADDR=":8080" \
+SNIFFER_SOURCE_DSN=... SNIFFER_IMGSYNC_DSN=... \
+imgsync sniffer &
+curl -s localhost:8080/metrics | grep imgsync_sniffer_
+```
+
+## 메트릭 emission 훅 (코드 레벨)
+
+`internal/sniffer/sniffer.go` 의 `Config` 는 외부에서 메트릭에 연결할 수 있도록 두 콜백을 노출합니다. CLI(`cmd/imgsync/sniffer`) 가 `internal/metrics` 와 wiring 합니다 — 직접 호출할 일은 보통 없습니다.
+
+```go
+type Config struct {
+    // ... 기존 필드 생략
+    OnEnqueue func(source string, n int)  // RunOnce 결과 enqueue 된 행 수
+    OnError   func(source string)         // RunOnce err 발생 시 1회
+}
+```

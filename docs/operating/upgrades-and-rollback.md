@@ -27,6 +27,35 @@ curl -s localhost:8080/healthz | jq
 
 배포 이후 30분 정도는 [모니터링](monitoring.md) 의 알람 신호 (last_sweep_ts / pool_in_use / pending 누적) 를 같이 본다.
 
+## 차트 스키마 break: selector 라벨 변경 (chart 1.0+)
+
+차트 1.0 부터 worker 와 sniffer 의 `Deployment.spec.selector.matchLabels` 에 `app.kubernetes.io/component` 라벨이 추가됐다. selector 는 Kubernetes 가 immutable 로 강제하는 필드라, **0.x 에서 올라가는 모든 helm upgrade 가 다음 에러로 실패한다.**
+
+```text
+Error: UPGRADE FAILED: cannot patch "imgsync" with kind Deployment:
+Deployment.apps "imgsync" is invalid: spec.selector: Invalid value: ...:
+field is immutable
+```
+
+복구 절차 (PVC / Service / ConfigMap / Secret 은 영향 없음):
+
+```bash
+# 1) 기존 Deployment 만 삭제
+kubectl -n <ns> delete deploy imgsync imgsync-sniffer
+
+# 2) helm upgrade 재실행
+helm upgrade imgsync deploy/helm/imgsync -n <ns> --reuse-values \
+  --set image.tag=<new-tag>
+```
+
+또는 `helm uninstall imgsync && helm install imgsync ...` 로 한 번에 처리해도 된다 (control DB / NFS PVC 등 영구 자원이 차트 밖에 있다는 전제).
+
+신규 설치는 영향 없다. 영향 범위는 **이미 0.x 차트로 설치된 클러스터** 만이며, 한 번 1.0 으로 올린 뒤에는 추가 조치가 필요하지 않다.
+
+> NOTES.txt 의 `UPGRADE CAVEAT` 블록도 같은 내용을 안내하며, `kubectl ... delete deploy` 명령을 릴리스 네임스페이스 / 풀네임으로 자동 채워 보여준다.
+
+---
+
 ## 롤백
 
 ```bash

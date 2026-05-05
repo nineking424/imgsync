@@ -59,6 +59,8 @@ stateDiagram-v2
 
 `transfer_jobs` 에는 `(trace_id, dst)` UNIQUE constraint 가 있습니다. `repo.Enqueue` 는 `INSERT ... ON CONFLICT (trace_id, dst) DO NOTHING` 으로 구현돼 있어서, 동일한 `(trace_id, dst)` 로 enqueue 를 여러 번 호출해도 행이 하나만 생성됩니다. Sniffer 가 재시작되거나 source DB 에서 같은 레코드를 두 번 읽어도 중복 작업이 만들어지지 않습니다.
 
+`transfer_jobs` 에는 운영을 위한 보조 인덱스가 하나 더 있습니다 — `transfer_jobs_status_idx` (단일 컬럼 b-tree, `status`). 이 인덱스는 모니터링 scrape SQL `SELECT status, COUNT(*) FROM transfer_jobs GROUP BY status` 가 `succeeded`/`skipped` 누적 행에서 풀 heap scan 으로 떨어지는 것을 막기 위해 도입됐습니다 — index-only scan + HashAggregate 로 처리됩니다. lease 경로의 `pending` 후보 선정은 별도의 부분 인덱스 (`(status, ready_at) WHERE status='pending'`) 가 담당하므로, 새 status-only 인덱스는 모니터링용 read-side 만 가속합니다.
+
 ## 운영자가 자주 쓰는 SQL
 
 **단일 작업 감사** (runbook §2):

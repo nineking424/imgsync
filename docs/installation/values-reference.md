@@ -204,3 +204,26 @@
 | `sniffer.secrets.imgsyncDSNSecretRef` | string | `imgsync-db-dsn` | Sniffer 전용 control DB DSN Secret 이름 (`SNIFFER_IMGSYNC_DSN` 키). |
 
 → Secret 생성 방법은 [Secret 준비](secrets.md) 참고. Sniffer 동작 원리는 [컴포넌트](../concepts/components.md) 참고.
+
+---
+
+## monitoring
+
+| 키 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `monitoring.serviceMonitor.enabled` | bool | `false` | Prometheus Operator 의 `ServiceMonitor` 리소스를 렌더할지 여부. 클러스터에 `monitoring.coreos.com/v1` CRD 가 없으면 옵트인해도 무시된다. |
+| `monitoring.serviceMonitor.interval` | string | `30s` | 스크랩 간격. Prometheus duration 문법 (`30s`, `1m`). |
+| `monitoring.serviceMonitor.scrapeTimeout` | string | `10s` | 한 번의 스크랩이 허용하는 최대 시간. `interval` 보다 짧아야 한다. |
+| `monitoring.serviceMonitor.labels` | map | `{}` | 생성되는 `ServiceMonitor` 에 붙일 추가 라벨. Prometheus Operator 의 `serviceMonitorSelector` 가 요구하는 라벨이 있으면 여기에 넣는다. |
+| `monitoring.serviceMonitor.namespace` | string | `""` | `ServiceMonitor` 를 둘 네임스페이스. 비우면 릴리스 네임스페이스에 생성된다. Prometheus 가 다른 네임스페이스에서 watch 하도록 설정돼 있다면 그쪽 이름을 적는다. |
+| `monitoring.podAnnotations` | map | `{}` | 메트릭 스크랩 환경에서 worker/sniffer 파드에 추가할 annotation. Prometheus Operator 가 아닌 in-pod scrape (e.g. `prometheus.io/scrape: "true"`) 를 쓸 때 사용한다. |
+
+→ ServiceMonitor 를 켜기 전에 클러스터 측 Prometheus 가 이 차트의 라벨 (`app.kubernetes.io/name=imgsync`, `component∈{worker, sniffer}`) 을 selector 로 매칭하는지 확인한다. 노출되는 메트릭 카탈로그는 [모니터링 — 메트릭 카탈로그](../operating/monitoring.md#메트릭-카탈로그) 를 본다.
+
+---
+
+## logging
+
+| 키 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `logging.format` | string | `text` | 컨테이너 로그 포맷. 현재는 `text` 만 지원하며 차후 `json` 추가 시 같은 키에서 토글한다. 운영 환경에서 키-밸류 추출이 필요하면 sidecar (vector / fluent-bit) 로 후처리하는 것을 권장한다. |

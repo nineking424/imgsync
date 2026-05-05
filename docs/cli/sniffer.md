@@ -31,6 +31,7 @@ imgsync sniffer [flags]
 | `SNIFFER_BATCH_SIZE` | 선택 | `500` | 1회 SELECT 에서 가져올 최대 row 수 |
 | `SNIFFER_BIAS_SEC` | 선택 | `5` | watermark 후방 여유 시간(초) |
 | `SNIFFER_INTERVAL_SEC` | 선택 | `60` | 폴링 간격(초) |
+| `SNIFFER_HEALTH_ADDR` | 선택 | `:8080` | `/livez` · `/readyz` · `/metrics` 리스너 바인드 주소 |
 
 자세한 표는 [환경 변수](../configuration/environment-variables.md)를 참고.
 
@@ -61,6 +62,19 @@ imgsync sniffer
 ```
 
 > oneshot 옵션(`--oneshot`)은 현재 구현되어 있지 않다. 추후 추가 예정.
+
+메트릭 / probe 단독 확인:
+
+```bash
+SNIFFER_HEALTH_ADDR=":8080" \
+SNIFFER_SOURCE_DSN=... \
+SNIFFER_IMGSYNC_DSN=... \
+imgsync sniffer &
+
+curl -s localhost:8080/livez       # → 200 OK
+curl -s localhost:8080/readyz      # → 200 OK / 503 (DB ping 실패 시)
+curl -s localhost:8080/metrics | grep imgsync_sniffer_
+```
 
 ## 동작
 

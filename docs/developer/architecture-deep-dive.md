@@ -97,3 +97,38 @@ bytes\.NewBuffer\b.*\bbody\b
 4. [`internal/transports/ftp/pool.go`](https://github.com/nineking424/imgsync/blob/main/internal/transports/ftp/pool.go) — 실전 Transport 구현. 커넥션 풀, host cap, 스트리밍 송신이 어떻게 함께 도는지.
 
 이 네 파일을 읽고 나면, 나머지 패키지는 "어디서 호출되는지" 를 grep 으로 따라가는 것만으로도 의도가 잡힌다.
+
+## `internal/metrics` 패키지
+
+Phase 1 모니터링에서 추가된 패키지로, **워커/스니퍼 코드가 Prometheus 라이브러리에 직접 의존하지 않도록** 콜백 어댑터를 모아둔 layer 다.
+
+### 파일 구조
+
+| 파일 | 책임 |
+|---|---|
+| `metrics.go` | `imgsync_jobs_processed_total`, `imgsync_lease_attempts_total`, `imgsync_workers_active`, `imgsync_ftp_pool_size`, `imgsync_sweep_cycles_total`, `imgsync_sniffer_*` counter/gauge 정의 + 외부 노출용 콜백 (`OnFinish`, `OnLeaseAttempt`, `OnWorkerStart/Stop`, `OnPoolChange`, `OnCycle`, `OnEnqueue`, `OnError`) |
+| `buckets.go` | `imgsync_job_duration_seconds` histogram bucket 상수 (`[0.1, 0.5, 1, 2, 5, 10, 30, 60, 300, 1800]` 초) |
+| `db_pool.go` | `pgxpool.Stat()` 을 scrape 시점에 읽어 `imgsync_db_pool_conns{state}` 로 변환 |
+| `lease_lock_age.go` | `SELECT EXTRACT(EPOCH FROM NOW()-MIN(locked_at))` 을 scrape 시점에 실행 (2초 timeout) |
+| `queue_depth.go` | `SELECT status, COUNT(*) FROM transfer_jobs GROUP BY status` 을 scrape 시점에 실행 |
+
+### Push vs scrape 두 패턴
+
+| 패턴 | 트리거 | 라이브러리 | 적용 메트릭 |
+|---|---|---|---|
+| **Push (in-process)** | 작업 / 콜백 발생 시점 | `prometheus.CounterVec`, `HistogramVec`, `GaugeVec` | `imgsync_jobs_processed_total`, `imgsync_lease_attempts_total`, `imgsync_workers_active`, `imgsync_ftp_pool_size`, `imgsync_sweep_cycles_total`, `imgsync_sniffer_*`, `imgsync_job_duration_seconds` |
+| **Scrape-time** | `/metrics` GET 요청 시 | `prometheus.Collector` 인터페이스 직접 구현 | `imgsync_jobs_in_status`, `imgsync_db_pool_conns`, `imgsync_lease_lock_age_seconds` |
+
+scrape-time 메트릭은 매 GET 마다 DB 쿼리를 한 번 더 던지므로 `interval` 이 너무 짧으면 control DB 가 영향을 받는다. 기본 `30s` (ServiceMonitor 기본값) 이 안전선이다.
+
+### 새 메트릭을 추가할 때
+
+1. `metrics.go` (push) 또는 새 collector 파일 (scrape-time) 에 정의를 추가한다.
+2. 라벨 카디널리티가 폭발하는지 사전 점검한다 — `src`, `dst`, `result` 처럼 enum 성격 필드만 라벨에 둔다. `trace_id` / `path` 등 unbounded 필드는 절대 라벨에 넣지 않는다.
+3. `metrics_test.go` 에 노출 형식 단위 테스트를, scrape 형이라면 `integration_test.go` 에 testcontainer 기반 통합 테스트를 추가한다.
+4. emit 지점 (worker / sniffer / sweeper / FTP pool) 에서 콜백을 받아 호출한다. **Prometheus import 가 emit 지점 코드로 새지 않도록 주의** — 항상 `internal/metrics` 가 단일 진입점이어야 한다.
+5. [모니터링 — 메트릭 카탈로그](../operating/monitoring.md#메트릭-카탈로그) 표와 [대시보드 — 패널 명세](../operating/dashboards.md#패널-명세) 표를 같이 갱신한다.
+
+### Health 서버 wiring
+
+`internal/health.NewServer` 는 functional option 패턴으로 바뀌었으며, `WithMetrics(handler http.Handler)` 옵션이 `/metrics` 를 같은 포트에 mount 한다. CLI(`cmd/imgsync/worker`, `cmd/imgsync/sniffer`) 는 `metrics.HTTPHandler()` 를 받아 이 옵션에 연결한다 — 별도 HTTP 서버를 띄우지 않는다.
