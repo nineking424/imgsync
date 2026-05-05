@@ -313,9 +313,9 @@ logging:
 | 파일 | 변경 |
 |---|---|
 | `templates/servicemonitor.yaml` | 신규. `{{- if and .Values.monitoring.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}` 게이트. worker · sniffer 두 endpoint |
-| `templates/sniffer-service.yaml` | 신규. `component=sniffer` selector, port `http` :8080 |
+| `templates/sniffer-service.yaml` | 신규. `app.kubernetes.io/component: sniffer` selector, port `http-metrics` :8080 |
 | `templates/sniffer-deployment.yaml` | `ports: [{name: http, containerPort: 8080}]` 추가. `livenessProbe(/livez)`, `readinessProbe(/readyz)`, `startupProbe(/readyz)` 추가. `SNIFFER_HEALTH_ADDR` env (default `:8080`) |
-| `templates/service.yaml` | selector 에 `component: worker` 추가 (현재는 sniffer pod 도 매치될 위험). port name `http-metrics` 추가 |
+| `templates/service.yaml` | selector 에 `app.kubernetes.io/component: worker` 추가 (현재는 sniffer pod 도 매치될 위험). port name `http-metrics` |
 | `templates/deployment.yaml` | label `component: worker` 명시. port name 정렬 |
 | `dashboards/imgsync-overview.json` | 신규. helm 패키지에 둠. ConfigMap 자동 import 옵션은 phase 1.5 |
 
@@ -324,7 +324,7 @@ logging:
 - `monitoring.serviceMonitor.enabled=true` 시 ServiceMonitor 생성, `false` 시 미생성
 - `sniffer.enabled=true` 시 `imgsync-sniffer` Service 생성
 - sniffer-deployment 에 `livenessProbe`/`readinessProbe` 존재
-- worker Service selector 에 `component: worker` 존재
+- worker Service selector 에 `app.kubernetes.io/component: worker` 존재
 
 ---
 
