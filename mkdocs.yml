@@ -16,44 +16,20 @@ exclude_docs: |
   e2e-real-cluster-guide.md
 
 theme:
-  name: material
+  name: readthedocs
   language: ko
-  palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-7
-        name: 다크 모드로 전환
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-4
-        name: 라이트 모드로 전환
-  features:
-    - navigation.tabs
-    - navigation.tabs.sticky
-    - navigation.sections
-    - navigation.indexes
-    - navigation.top
-    - navigation.tracking
-    - toc.follow
-    - search.suggest
-    - search.highlight
-    - content.code.copy
-    - content.code.annotate
-    - content.action.edit
-  icon:
-    repo: fontawesome/brands/github
+  highlightjs: true
+  hljs_languages:
+    - bash
+    - go
+    - sql
+    - yaml
+    - json
+    - dockerfile
+  navigation_depth: 3
 
 plugins:
-  - search:
-      lang:
-        - ko
-        - en
+  - search
   - mermaid2
 
 markdown_extensions:
