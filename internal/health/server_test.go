@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,4 +102,39 @@ func TestHealthz_ReportsStatusJSON(t *testing.T) {
 	require.Contains(t, body, "pool_in_use")
 	require.Contains(t, body, "pool_idle")
 	require.Contains(t, body, "pool_max")
+}
+
+func TestNewServer_WithoutMetricsOption_404OnMetricsPath(t *testing.T) {
+	// /metrics path does not touch the pool, so a nil pool is acceptable here.
+	st := health.NewStatus()
+	srv := health.NewServer(nil, st)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	srv.MuxForTest().ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestNewServer_WithMetricsOption_ServesProvidedHandler(t *testing.T) {
+	st := health.NewStatus()
+	called := false
+	hh := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("# HELP test ok\n"))
+	})
+	srv := health.NewServer(nil, st, health.WithMetrics(hh))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	srv.MuxForTest().ServeHTTP(w, r)
+
+	if !called {
+		t.Fatalf("metrics handler not invoked")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
 }

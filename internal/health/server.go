@@ -39,23 +39,49 @@ func (s *Status) OnSweepCycle() {
 
 // Server is a lightweight HTTP server. Use Serve(listener) to bind, Close to stop.
 type Server struct {
-	pool   *pgxpool.Pool
-	status *Status
-	hs     *http.Server
+	pool    *pgxpool.Pool
+	status  *Status
+	mux     *http.ServeMux
+	metrics http.Handler // nil if not configured
+	hs      *http.Server
 }
 
-func NewServer(pool *pgxpool.Pool, st *Status) *Server {
+// Option configures a Server during NewServer.
+type Option func(*Server)
+
+// WithMetrics mounts the given handler at /metrics on the server's mux.
+// Passing a nil handler is a no-op (the path remains unmounted).
+func WithMetrics(h http.Handler) Option {
+	return func(s *Server) {
+		if h == nil {
+			return
+		}
+		s.metrics = h
+	}
+}
+
+func NewServer(pool *pgxpool.Pool, st *Status, opts ...Option) *Server {
 	mux := http.NewServeMux()
-	s := &Server{pool: pool, status: st}
+	s := &Server{pool: pool, status: st, mux: mux}
+	for _, opt := range opts {
+		opt(s)
+	}
 	mux.HandleFunc("/livez", s.livez)
 	mux.HandleFunc("/readyz", s.readyz)
 	mux.HandleFunc("/healthz", s.healthz)
+	if s.metrics != nil {
+		mux.Handle("/metrics", s.metrics)
+	}
 	s.hs = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return s
 }
+
+// MuxForTest exposes the internal mux for unit tests that need to drive
+// requests directly without binding a TCP socket.
+func (s *Server) MuxForTest() http.Handler { return s.mux }
 
 func (s *Server) Serve(l net.Listener) error { return s.hs.Serve(l) }
 func (s *Server) Close() error               { return s.hs.Close() }
