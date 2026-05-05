@@ -65,3 +65,4 @@ flowchart LR
 - 처음이라면: [Docker Compose 빠른 시작](getting-started/quickstart-docker-compose.md)
 - 클러스터에 올리려면: [Helm 설치](installation/helm.md)
 - 설정 항목 전체: [환경 변수](configuration/environment-variables.md), [values.yaml 레퍼런스](installation/values-reference.md)
+- 자주 묻는 질문: [FAQ](faq.md) — 설계 / 운영 / 마이그레이션 / 확장 관련 빠른 답변.
