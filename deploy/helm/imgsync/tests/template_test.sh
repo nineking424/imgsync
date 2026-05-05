@@ -111,4 +111,25 @@ grep -q "livenessProbe" "$TMP/t-sniff-deploy.yaml" || \
 grep -q "readinessProbe" "$TMP/t-sniff-deploy.yaml" || \
   { echo "FAIL: sniffer readinessProbe missing"; exit 1; }
 
+# ─── Test 11: ServiceMonitor disabled by default ────────────────────
+echo "==> ServiceMonitor default off"
+if grep -q "kind: ServiceMonitor" "$TMP/t1.yaml"; then
+  echo "FAIL: ServiceMonitor rendered with default values (must be opt-in)"
+  exit 1
+fi
+
+# ─── Test 12: ServiceMonitor enabled produces both endpoints ────────
+echo "==> ServiceMonitor enabled"
+helm template t-sm "$CHART" \
+  --set monitoring.serviceMonitor.enabled=true \
+  --set sniffer.enabled=true \
+  --api-versions monitoring.coreos.com/v1 > "$TMP/t-sm.yaml"
+grep -q "kind: ServiceMonitor" "$TMP/t-sm.yaml" || \
+  { echo "FAIL: ServiceMonitor not rendered when enabled=true"; exit 1; }
+# Single endpoint fans out across worker + sniffer Services via selector
+# matchExpressions (component In [worker, sniffer]). Both Services expose the
+# same port name "http-metrics", so one endpoints[].port reference is enough.
+grep -c "port: http-metrics" "$TMP/t-sm.yaml" | grep -q "^[1-9]" || \
+  { echo "FAIL: ServiceMonitor missing http-metrics endpoint"; exit 1; }
+
 echo "PASS: helm chart structural tests green"
