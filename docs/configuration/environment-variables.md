@@ -15,7 +15,7 @@ imgsync 의 모든 런타임 설정은 환경 변수로 주입됩니다. 아래 
 | `IMGSYNC_FTP_USER` | worker | (없음) | FTP 자격증명 |
 | `IMGSYNC_FTP_PASSWORD` | worker | (없음) | FTP 자격증명 |
 | `IMGSYNC_FTP_HOST_CAP` | worker | `8` | 클러스터-와이드 host 동시 처리 cap (advisory lock) |
-| `IMGSYNC_HEALTH_ADDR` | worker | `:8080` | /healthz 바인드 주소 |
+| `IMGSYNC_HEALTH_ADDR` | worker | `:8080` | health/metrics 리스너 바인드. `/livez`, `/readyz`, `/healthz`, `/metrics` 가 모두 같은 포트에 뜬다. |
 | `IMGSYNC_MIGRATIONS_DIR` | migrate | `/etc/imgsync/migrations` | 마이그레이션 SQL 경로 |
 | `SNIFFER_SOURCE_DSN` | sniffer | (필수) | source DB DSN |
 | `SNIFFER_IMGSYNC_DSN` | sniffer | (필수) | sniffer 가 enqueue 할 control DB DSN |
@@ -32,6 +32,7 @@ imgsync 의 모든 런타임 설정은 환경 변수로 주입됩니다. 아래 
 | `SNIFFER_BATCH_SIZE` | sniffer | `500` | 한 번 폴링당 SELECT row cap |
 | `SNIFFER_BIAS_SEC` | sniffer | `5` | high-watermark 뒤로 빼는 안전 마진(초) |
 | `SNIFFER_INTERVAL_SEC` | sniffer | `60` | 폴링 주기(초) |
+| `SNIFFER_HEALTH_ADDR` | sniffer | `:8080` | sniffer health/metrics 리스너 바인드. `/livez`, `/readyz`, `/metrics` 노출. 비우면 probe 실패. |
 
 ## 관련 페이지
 
