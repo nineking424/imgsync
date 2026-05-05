@@ -96,3 +96,12 @@ func TestOnSnifferError_IncrementsCounter(t *testing.T) {
 		t.Fatalf("err = %v, want 1", v)
 	}
 }
+
+func TestSetWorkersActive_RecordsPodGauge(t *testing.T) {
+	m := New()
+	m.SetWorkersActive("pod-a", 3)
+	m.SetWorkersActive("pod-a", 2) // a worker stopped
+	if v := testutil.ToFloat64(m.workersActive.WithLabelValues("pod-a")); v != 2 {
+		t.Fatalf("active = %v, want 2", v)
+	}
+}

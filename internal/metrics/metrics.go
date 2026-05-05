@@ -24,6 +24,7 @@ type Metrics struct {
 	ftpPoolSize   *prometheus.GaugeVec
 	snifferEnq    *prometheus.CounterVec
 	snifferErr    *prometheus.CounterVec
+	workersActive *prometheus.GaugeVec
 }
 
 // New constructs a Metrics with a fresh registry and registers all collectors.
@@ -60,10 +61,14 @@ func New() *Metrics {
 			Name: "imgsync_sniffer_run_errors_total",
 			Help: "RunOnce invocations that returned an error.",
 		}, []string{"source"}),
+		workersActive: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "imgsync_workers_active",
+			Help: "Worker goroutines currently running, per pod.",
+		}, []string{"pod"}),
 	}
 	reg.MustRegister(
 		m.leaseAttempts, m.jobsProcessed, m.jobDuration, m.sweepCycles,
-		m.ftpPoolSize, m.snifferEnq, m.snifferErr,
+		m.ftpPoolSize, m.snifferEnq, m.snifferErr, m.workersActive,
 	)
 	return m
 }
@@ -101,6 +106,10 @@ func (m *Metrics) OnSnifferError(source string)                { m.snifferErr.Wi
 func (m *Metrics) OnFTPPoolChange(host string, inUse, idle int) {
 	m.ftpPoolSize.WithLabelValues(host, "in_use").Set(float64(inUse))
 	m.ftpPoolSize.WithLabelValues(host, "idle").Set(float64(idle))
+}
+
+func (m *Metrics) SetWorkersActive(pod string, n int) {
+	m.workersActive.WithLabelValues(pod).Set(float64(n))
 }
 
 // Handler returns the HTTP handler that serves the metrics in this registry.
