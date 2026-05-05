@@ -87,7 +87,7 @@ kubectl -n imgsync get servicemonitor imgsync
 
 ---
 
-## Step 4: 첫 작업 enqueue
+## Step 5: 첫 작업 enqueue
 
 → 첫 작업 enqueue 명령은 **[운영 매뉴얼 §1](../operating/runbook.md)** 의 enqueue 절을 참고한다.
 
