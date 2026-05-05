@@ -22,6 +22,12 @@ type Config struct {
 	DstProtocol string
 	ImgsyncPool *pgxpool.Pool
 	SourcePool  *pgxpool.Pool
+
+	// OnEnqueue, if non-nil, fires once at the end of every successful RunOnce
+	// with the SourceID and the number of rows just enqueued (n=0 is allowed).
+	OnEnqueue func(source string, n int)
+	// OnError, if non-nil, fires once when RunOnce returns a non-nil error.
+	OnError func(source string)
 }
 
 // Sniffer composes state, query, traceid, and enqueue into a single poll loop.
@@ -47,7 +53,23 @@ func New(cfg Config) *Sniffer {
 // Returns the count of rows inserted (UNIQUE conflicts count as 0).
 // Watermark is advanced only after all enqueue calls succeed so that a
 // mid-batch error preserves the old watermark and the batch is retried in full.
+// On success, OnEnqueue (if set) fires once with (SourceID, n). On error,
+// OnError (if set) fires once with SourceID.
 func (s *Sniffer) RunOnce(ctx context.Context) (int, error) {
+	n, err := s.runOnceImpl(ctx)
+	if err != nil {
+		if s.cfg.OnError != nil {
+			s.cfg.OnError(s.cfg.SourceID)
+		}
+		return n, err
+	}
+	if s.cfg.OnEnqueue != nil {
+		s.cfg.OnEnqueue(s.cfg.SourceID, n)
+	}
+	return n, nil
+}
+
+func (s *Sniffer) runOnceImpl(ctx context.Context) (int, error) {
 	st, err := s.state.Load(ctx, s.cfg.SourceID)
 	if err != nil {
 		return 0, fmt.Errorf("load state: %w", err)
