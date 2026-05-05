@@ -153,3 +153,16 @@ kind load docker-image <repo>/imgsync:<tag> --name <cluster-name> --quiet || ech
 `failed` 가 뜨면 클러스터 이름이 다르거나 이미지 태그가 틀린 것.
 
 **조치.** `kind get clusters` 로 클러스터 이름을 확인한 뒤 `kind load docker-image` 로 재로드한다. CI 환경에서는 `imagePullPolicy: IfNotPresent` 가 기본이므로 같은 태그로 reload 한 뒤 deployment 를 재시작해야 새 이미지가 잡힌다 — `kubectl rollout restart deploy/imgsync -n <ns>`.
+
+## 메트릭 우선 진단 (Phase 1+)
+
+`/metrics` 가 떠 있는 환경에서는 healthz/SQL 보다 다음 PromQL 4 종을 먼저 본다. 같은 신호를 더 빠르게, history 와 함께 받을 수 있다.
+
+| 증상 | 1차 PromQL | 의미 / 후속 |
+|---|---|---|
+| 큐가 안 빠진다 | `imgsync_jobs_in_status{status="pending"}` 와 `rate(imgsync_jobs_processed_total[5m])` 비교 | pending 만 증가하면 enqueue 폭증, processed rate 가 0 이면 워커 스톱 |
+| Stuck lease | `imgsync_lease_lock_age_seconds` | sweeper threshold 초과면 [런북 §3](runbook.md#3-stuck) 으로 점프 |
+| 실패 폭증 | `sum by (result) (rate(imgsync_jobs_processed_total[5m]))` | `fail` / `dead` 가 갑자기 올라가면 `transfer_events` SQL 로 detail 조사 |
+| sniffer 가 일을 안 한다 | `rate(imgsync_sniffer_enqueue_total[10m])` | 0 이면 sniffer 사이클이 안 돌거나 source 가 비어 있음 — `imgsync_sniffer_run_errors_total` rate 도 같이 본다 |
+
+PromQL 만 보고 결론을 내지 않고, 항상 짝이 되는 SQL ([런북 §7](runbook.md#7-sql)) 으로 한 번 더 검증한 뒤 후속 액션을 취한다 — 메트릭은 라벨 카디널리티 한계상 일부 디테일을 잘라낸다.
