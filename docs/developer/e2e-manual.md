@@ -1,4 +1,10 @@
-# imgsync — E2E 매뉴얼 검증 가이드
+---
+title: E2E 매뉴얼 검증 가이드
+---
+
+# E2E 매뉴얼 검증 가이드
+
+이 페이지는 imgsync 의 핵심 시나리오(C7 처리량, F5a/b/c 회복, C5' sniffer)를 kind 클러스터에서 수동으로 검증하는 절차서다. 자동화된 E2E 는 `make e2e-throughput` / `make e2e-dirty-state` / `make e2e-sniffer` 로 실행된다 — 이 매뉴얼은 자동화가 잡아내지 못하는 운영 시나리오를 사람의 눈으로 확인할 때 쓴다.
 
 `go test -tags e2e ./e2e/...` 가 자동으로 수행하는 시나리오를, 사람이 손으로
 따라가며 동일한 불변식(invariant)을 직접 확인하는 절차다. 자동 테스트를 못 돌리는
@@ -597,6 +603,5 @@ sudo rm -rf /tmp/imgsync-e2e-localfs
 
 - 자동 E2E 의 정확한 SQL/타이밍은 `e2e/helpers.go`, `e2e/{sniffer,dirty_state,throughput}_test.go` 가
   최종 진실이다. 본 문서의 SQL 은 거기서 그대로 추출/번역한 것.
-- 오퍼레이터 일상 운영은 [`docs/runbook.md`](runbook.md) 참고.
-- 최근 자동 E2E 결과 (2026-05-01 기준 `a69bcb0`):
-  [`docs/test-reports/2026-05-01-imgsync-a69bcb0.md`](test-reports/2026-05-01-imgsync-a69bcb0.md).
+- 오퍼레이터 일상 운영은 [운영 런북](../operating/runbook.md) 참고.
+- 최근 자동 E2E 결과 (2026-05-01 기준 `a69bcb0`): 리포 내 `docs/test-reports/2026-05-01-imgsync-a69bcb0.md` (별도 산출물).

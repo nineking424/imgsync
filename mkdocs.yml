@@ -9,11 +9,9 @@ site_dir: site
 strict: true
 
 # 사내 작업 산출물은 공개 사이트에서 제외.
-# /e2e-manual-guide.md 는 Task 9 에서 새 위치로 이동되면 이 줄을 제거한다.
 exclude_docs: |
   superpowers/
   README.md
-  /e2e-manual-guide.md
 
 theme:
   name: material
