@@ -22,9 +22,9 @@ imgsync 를 구성하는 세 가지 런타임 컴포넌트를 설명합니다.
 
 **역할**: Source DB 를 폴링해 새 레코드를 감지하고, control DB 에 작업을 enqueue 하는 컴포넌트입니다.
 
-### Shadow 모드
+### shadow 모드
 
-`--shadow` 플래그를 켜면 Sniffer 는 enqueue 대신 감사(audit) 로그만 남깁니다. 신규 Source DB 의 쿼리가 올바른지, 예상되는 레코드가 검출되는지 확인할 때 사용합니다. Shadow 모드에서는 `transfer_jobs` 에 행이 삽입되지 않으므로 워커가 실제 전송을 시도하지 않습니다.
+`SNIFFER_SHADOW=true` 로 켜면 Sniffer 는 enqueue 대신 감사(audit) 로그만 남깁니다. 신규 Source DB 의 쿼리가 올바른지, 예상되는 레코드가 검출되는지 확인할 때 사용합니다. shadow 모드에서는 `transfer_jobs` 에 행이 삽입되지 않으므로 워커가 실제 전송을 시도하지 않습니다.
 
 ### High-watermark 기반 증분
 

@@ -53,7 +53,7 @@ stateDiagram-v2
 `leased → pending` 경로는 두 가지입니다.
 
 1. **일시적 오류 후 재큐**: Worker 가 `MarkFailed` 를 호출하고 `attempts < max_attempts` 이면 `status` 를 `pending` 으로 돌립니다.
-2. **Sweeper 회수**: Worker 가 crash 등으로 finalze 하지 못한 채 `locked_at` 이 threshold(5분)를 넘으면 Sweeper 가 `expire` 이벤트를 기록하고 `pending` 으로 되돌립니다.
+2. **Sweeper 회수**: Worker 가 crash 등으로 finalize 하지 못한 채 `locked_at` 이 threshold(5분)를 넘으면 Sweeper 가 `expire` 이벤트를 기록하고 `pending` 으로 되돌립니다.
 
 ## 멱등성 키
 

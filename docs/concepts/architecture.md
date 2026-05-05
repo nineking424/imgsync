@@ -85,7 +85,7 @@ type Transport interface {
 }
 ```
 
-구현체는 `internal/sources/<protocol>/` 또는 `internal/transports/<protocol>/` 아래에 배치하고, Worker 의 프로토콜 레지스트리에 등록합니다. DB 스키마나 Worker 루프를 건드릴 필요가 없습니다.
+구현체는 `internal/sources/<protocol>/` 또는 `internal/transports/<protocol>/` 아래에 배치하고, Worker 의 프로토콜 레지스트리에 등록합니다. DB 스키마나 Worker 루프를 건드릴 필요가 없습니다. 전체 계약(에러 정책, 스트리밍 규칙)은 [Source · Transport](sources-and-transports.md) 에서 다룹니다.
 
 ## 의도적으로 하지 않은 것
 

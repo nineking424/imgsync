@@ -14,24 +14,23 @@ imgsync sniffer [flags]
 
 ## 환경 변수
 
-| 변수 | 필수 | 설명 |
-|---|---|---|
-| `IMGSYNC_DSN` | 선택 | PostgreSQL 연결 문자열 (대체: `SNIFFER_IMGSYNC_DSN`) |
-| `SNIFFER_SOURCE_DSN` | 필수 | 폴링할 source DB 연결 문자열 |
-| `SNIFFER_IMGSYNC_DSN` | 필수 | enqueue 대상 imgsync DB 연결 문자열 |
-| `SNIFFER_SOURCE_ID` | 필수 | source 식별자 (watermark key) |
-| `SNIFFER_TABLE` | 필수 | 폴링할 테이블명 |
-| `SNIFFER_PK_COLUMN` | 필수 | 기본 키 컬럼명 |
-| `SNIFFER_TS_COLUMN` | 필수 | watermark 기준 타임스탬프 컬럼명 |
-| `SNIFFER_DST_PATTERN` | 필수 | 목적지 URI Go template |
-| `SNIFFER_SRC_PATTERN` | 필수 | 소스 URI Go template |
-| `SNIFFER_SRC_PROTOCOL` | 필수 | 소스 프로토콜 (e.g. `localfs`, `ftp`) |
-| `SNIFFER_DST_PROTOCOL` | 필수 | 목적지 프로토콜 |
-| `SNIFFER_EXTRA_COLUMNS` | 선택 | template 에 노출할 추가 컬럼 목록 (쉼표 구분) |
-| `SNIFFER_SHADOW` | 선택 | `true` 이면 enqueue 없이 감사 로그만 기록 |
-| `SNIFFER_BATCH_SIZE` | 선택 | 1회 SELECT 에서 가져올 최대 row 수 |
-| `SNIFFER_BIAS_SEC` | 선택 | watermark 후방 여유 시간(초) |
-| `SNIFFER_INTERVAL_SEC` | 선택 | 폴링 간격(초) |
+| 변수 | 필수 | 기본값 | 설명 |
+|---|---|---|---|
+| `SNIFFER_SOURCE_DSN` | 필수 | — | 폴링할 source DB 연결 문자열 |
+| `SNIFFER_IMGSYNC_DSN` | 필수 | — | enqueue 대상 imgsync DB 연결 문자열 |
+| `SNIFFER_SOURCE_ID` | 필수 | — | source 식별자 (watermark key) |
+| `SNIFFER_TABLE` | 필수 | — | 폴링할 테이블명 |
+| `SNIFFER_PK_COLUMN` | 필수 | — | 기본 키 컬럼명 |
+| `SNIFFER_TS_COLUMN` | 필수 | — | watermark 기준 타임스탬프 컬럼명 |
+| `SNIFFER_DST_PATTERN` | 필수 | — | 목적지 URI Go template |
+| `SNIFFER_SRC_PATTERN` | 필수 | — | 소스 URI Go template |
+| `SNIFFER_SRC_PROTOCOL` | 필수 | — | 소스 프로토콜 (e.g. `localfs`, `ftp`) |
+| `SNIFFER_DST_PROTOCOL` | 필수 | — | 목적지 프로토콜 |
+| `SNIFFER_EXTRA_COLUMNS` | 선택 | — | template 에 노출할 추가 컬럼 목록 (쉼표 구분) |
+| `SNIFFER_SHADOW` | 선택 | `true` | `true` 이면 enqueue 없이 감사 로그만 기록. 실제 enqueue 를 시작하려면 `false` 로 명시 설정해야 한다. |
+| `SNIFFER_BATCH_SIZE` | 선택 | `500` | 1회 SELECT 에서 가져올 최대 row 수 |
+| `SNIFFER_BIAS_SEC` | 선택 | `5` | watermark 후방 여유 시간(초) |
+| `SNIFFER_INTERVAL_SEC` | 선택 | `60` | 폴링 간격(초) |
 
 자세한 표는 [환경 변수](../configuration/environment-variables.md)를 참고.
 

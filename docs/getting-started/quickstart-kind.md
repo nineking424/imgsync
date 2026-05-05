@@ -28,25 +28,40 @@ make e2e-up
 
 ## 2. 상태 확인
 
+> 참고: `make e2e-up` 으로 띄운 kind 클러스터의 namespace 는 `imgsync-e2e` 다.
+> 실제 운영용 Helm 설치 시에는 `helm install -n imgsync ...` 처럼 원하는 namespace 를 지정한다.
+
 ```bash
-kubectl -n imgsync get pods
+kubectl -n imgsync-e2e get pods
 # imgsync-...           2/2 Running
 # postgres-0            1/1 Running
 # source-postgres-0     1/1 Running
 
-kubectl -n imgsync logs deploy/imgsync -c imgsync --tail=20
+kubectl -n imgsync-e2e logs deploy/imgsync -c imgsync --tail=20
 # "lease loop started" / "no jobs to lease"
 ```
 
 ## 3. 작업 enqueue 와 처리 확인
 
+작업 한 건을 큐에 넣는다:
+
 ```bash
-kubectl -n imgsync exec -it deploy/imgsync -c imgsync -- \
+kubectl -n imgsync-e2e exec -it deploy/imgsync -c imgsync -- \
   imgsync enqueue --trace-id=demo \
     --src=file:///tmp/foo --dst=file:///tmp/bar \
     --src-protocol=localfs --dst-protocol=localfs
+```
 
-kubectl -n imgsync port-forward svc/postgres 5432:5432  # 또는 별도 psql
+> 위 경로(`/tmp/foo`)는 컨테이너 안에 존재하지 않으므로 작업은 `skipped` 로 종결된다(`ErrSkippable`).
+> CLI 동작 확인용 데모로 충분하며, 실제 전송을 보려면 [E2E 매뉴얼](../developer/e2e-manual.md) 의 시드 스크립트를 사용한다.
+
+별도 터미널에서 control DB 에 직접 붙어 결과를 확인한다(`port-forward` 는 블로킹):
+
+```bash
+kubectl -n imgsync-e2e port-forward svc/postgres 5432:5432
+```
+
+```bash
 psql -h 127.0.0.1 -U imgsync -c \
   "select id, status, attempts from transfer_jobs where trace_id='demo';"
 ```
