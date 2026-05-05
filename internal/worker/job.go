@@ -62,3 +62,14 @@ RETURNING j.id, j.trace_id, j.src, j.dst, j.src_protocol, j.dst_protocol,
 	}
 	return &j, nil
 }
+
+// Duration returns how long has elapsed since the job was leased. Returns 0
+// when the job has no LockedAt (e.g. constructed directly in tests). The
+// value is the worker's view of "lease → now"; for the in-DB lease age use
+// imgsync_lease_lock_age_seconds.
+func (j *Job) Duration() time.Duration {
+	if j.LockedAt == nil {
+		return 0
+	}
+	return time.Since(*j.LockedAt)
+}
