@@ -1,0 +1,19 @@
+{{- if .Values.sniffer.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "imgsync.fullname" . }}-sniffer
+  labels:
+    {{- include "imgsync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sniffer
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "imgsync.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: sniffer
+  ports:
+    - name: http-metrics
+      port: 8080
+      targetPort: http
+      protocol: TCP
+{{- end }}

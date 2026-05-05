@@ -4,11 +4,13 @@ metadata:
   name: {{ include "imgsync.fullname" . }}
   labels:
     {{- include "imgsync.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       {{- include "imgsync.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
   strategy:
     # RollingUpdate is fine — workers are stateless from k8s' POV; lease ownership lives in DB.
     type: RollingUpdate
@@ -19,6 +21,7 @@ spec:
     metadata:
       labels:
         {{- include "imgsync.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

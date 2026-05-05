@@ -153,3 +153,15 @@ sniffer:
   secrets:
     sourceDSNSecretRef: "imgsync-source-dsn"      # contains key SNIFFER_SOURCE_DSN
     imgsyncDSNSecretRef: "imgsync-db-dsn"         # contains key SNIFFER_IMGSYNC_DSN
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    namespace: ""
+  podAnnotations: {}
+
+logging:
+  format: text
