@@ -136,5 +136,13 @@ func (r *Runner) fire(job *Job) {
 	}
 }
 
-func (r *Runner) emitStart() { if r.OnWorkerStart != nil { r.OnWorkerStart(r.PodName) } }
-func (r *Runner) emitStop()  { if r.OnWorkerStop != nil { r.OnWorkerStop(r.PodName) } }
+func (r *Runner) emitStart() {
+	if r.OnWorkerStart != nil {
+		r.OnWorkerStart(r.PodName)
+	}
+}
+func (r *Runner) emitStop() {
+	if r.OnWorkerStop != nil {
+		r.OnWorkerStop(r.PodName)
+	}
+}

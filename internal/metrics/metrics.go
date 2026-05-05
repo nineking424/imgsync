@@ -101,9 +101,11 @@ func (m *Metrics) OnJobFinished(src, dst, result string, dur time.Duration) {
 	m.jobDuration.WithLabelValues(src, dst, result).Observe(dur.Seconds())
 }
 
-func (m *Metrics) OnSweepCycle()                               { m.sweepCycles.Inc() }
-func (m *Metrics) OnSnifferEnqueue(source string, n int)       { m.snifferEnq.WithLabelValues(source).Add(float64(n)) }
-func (m *Metrics) OnSnifferError(source string)                { m.snifferErr.WithLabelValues(source).Inc() }
+func (m *Metrics) OnSweepCycle() { m.sweepCycles.Inc() }
+func (m *Metrics) OnSnifferEnqueue(source string, n int) {
+	m.snifferEnq.WithLabelValues(source).Add(float64(n))
+}
+func (m *Metrics) OnSnifferError(source string) { m.snifferErr.WithLabelValues(source).Inc() }
 func (m *Metrics) OnFTPPoolChange(host string, inUse, idle int) {
 	m.ftpPoolSize.WithLabelValues(host, "in_use").Set(float64(inUse))
 	m.ftpPoolSize.WithLabelValues(host, "idle").Set(float64(idle))
