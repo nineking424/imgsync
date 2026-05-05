@@ -1,11 +1,17 @@
-# imgsync — E2E 매뉴얼 검증 가이드
+---
+title: E2E 매뉴얼 검증 가이드
+---
+
+# E2E 매뉴얼 검증 가이드
+
+이 페이지는 imgsync 의 핵심 시나리오(C7 처리량, F5a/b/c 회복, C5' sniffer)를 kind 클러스터에서 수동으로 검증하는 절차서다. 자동화된 E2E 는 `make e2e-throughput` / `make e2e-dirty-state` / `make e2e-sniffer` 로 실행된다 — 이 매뉴얼은 자동화가 잡아내지 못하는 운영 시나리오를 사람의 눈으로 확인할 때 쓴다.
 
 `go test -tags e2e ./e2e/...` 가 자동으로 수행하는 시나리오를, 사람이 손으로
 따라가며 동일한 불변식(invariant)을 직접 확인하는 절차다. 자동 테스트를 못 돌리는
 환경 (CI 토큰 만료, 격리망, 인프라 실험) 또는 새 시나리오를 시운전할 때 쓴다.
 
-> **실제 K8s 클러스터에서 검증하려면 [`docs/e2e-real-cluster-guide.md`](e2e-real-cluster-guide.md)**
-> 를 참고할 것. NFS PVC + ghcr.io 기반의 자매 가이드다.
+> **실제 K8s 클러스터에서 검증하려면** 리포 내 [`docs/e2e-real-cluster-guide.md`](https://github.com/nineking424/imgsync/blob/main/docs/e2e-real-cluster-guide.md)
+> 를 참고할 것. NFS PVC + ghcr.io 기반의 자매 가이드다 (사이트에는 미공개, 리포 내부 산출물).
 
 각 시나리오 끝의 **검증 체크리스트**를 모두 통과하면 자동 테스트의 PASS 와 동치다.
 하나라도 실패하면 회귀(regression) 의심하고 보고할 것.
@@ -600,6 +606,5 @@ sudo rm -rf /tmp/imgsync-e2e-localfs
 
 - 자동 E2E 의 정확한 SQL/타이밍은 `e2e/helpers.go`, `e2e/{sniffer,dirty_state,throughput}_test.go` 가
   최종 진실이다. 본 문서의 SQL 은 거기서 그대로 추출/번역한 것.
-- 오퍼레이터 일상 운영은 [`docs/runbook.md`](runbook.md) 참고.
-- 최근 자동 E2E 결과 (2026-05-01 기준 `a69bcb0`):
-  [`docs/test-reports/2026-05-01-imgsync-a69bcb0.md`](test-reports/2026-05-01-imgsync-a69bcb0.md).
+- 오퍼레이터 일상 운영은 [운영 런북](../operating/runbook.md) 참고.
+- 최근 자동 E2E 결과는 CI 산출물 / 별도 보고서로 관리되며 본 리포에는 포함되지 않는다. 직접 재현하려면 위 §1–§8 의 절차를 그대로 따른다.

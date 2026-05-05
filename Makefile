@@ -105,3 +105,17 @@ test-integration-sniffer: ## Run sniffer integration tests S0-S3 (requires Docke
 .PHONY: e2e-push-real
 e2e-push-real: ## Build and push imgsync image to ghcr.io for real-cluster e2e
 	./scripts/e2e-image-push.sh
+
+docs-install: ## docs 빌드 의존성 설치 (venv 권장)
+	pip install -r requirements-docs.txt
+
+docs-serve: ## 로컬 라이브 미리보기 (http://localhost:8000)
+	mkdocs serve --strict
+
+docs-build: ## 정적 사이트 빌드 (--strict, 링크/레퍼런스 깨지면 실패)
+	mkdocs build --strict
+
+docs-clean:
+	rm -rf site/
+
+.PHONY: docs-install docs-serve docs-build docs-clean

@@ -1,0 +1,137 @@
+site_name: imgsync
+site_description: Go + PostgreSQL 기반 파일 전송 작업 큐. 사내 NiFi 대체.
+site_url: https://nineking424.github.io/imgsync/
+repo_url: https://github.com/nineking424/imgsync
+repo_name: nineking424/imgsync
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+strict: true
+
+# 사내 작업 산출물은 공개 사이트에서 제외.
+exclude_docs: |
+  superpowers/
+  README.md
+  test-reports/
+  e2e-real-cluster-guide.md
+
+theme:
+  name: material
+  language: ko
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 다크 모드로 전환
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 라이트 모드로 전환
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      lang:
+        - ko
+        - en
+  - mermaid2
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid_custom
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/nineking424/imgsync
+
+nav:
+  - 소개: index.md
+  - 시작하기:
+      - getting-started/index.md
+      - Docker Compose 빠른 시작: getting-started/quickstart-docker-compose.md
+      - kind + Helm 빠른 시작: getting-started/quickstart-kind.md
+  - 개념:
+      - concepts/index.md
+      - 아키텍처: concepts/architecture.md
+      - 작업 큐 모델: concepts/job-queue-model.md
+      - 컴포넌트: concepts/components.md
+      - Source · Transport: concepts/sources-and-transports.md
+      - 용어집: concepts/glossary.md
+  - 설치:
+      - installation/index.md
+      - Helm 설치: installation/helm.md
+      - Secret 준비: installation/secrets.md
+      - values.yaml 레퍼런스: installation/values-reference.md
+  - 설정:
+      - configuration/index.md
+      - 환경 변수: configuration/environment-variables.md
+      - Worker: configuration/worker.md
+      - Sniffer: configuration/sniffer.md
+      - Sweeper: configuration/sweeper.md
+      - 프로토콜: configuration/protocols.md
+  - CLI:
+      - cli/index.md
+      - migrate: cli/migrate.md
+      - worker: cli/worker.md
+      - sniffer: cli/sniffer.md
+      - enqueue: cli/enqueue.md
+  - 운영:
+      - operating/index.md
+      - 런북: operating/runbook.md
+      - 모니터링: operating/monitoring.md
+      - 스케일링: operating/scaling.md
+      - 업그레이드 · 롤백: operating/upgrades-and-rollback.md
+      - 트러블슈팅: operating/troubleshooting.md
+  - 개발:
+      - developer/index.md
+      - 빌드와 테스트: developer/build-and-test.md
+      - 아키텍처 심화: developer/architecture-deep-dive.md
+      - E2E 매뉴얼: developer/e2e-manual.md
+      - 기여 가이드: developer/contributing.md
+      - 릴리스 프로세스: developer/release-process.md
+  - FAQ: faq.md

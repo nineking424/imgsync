@@ -1,0 +1,44 @@
+# imgsync migrate
+
+마이그레이션 SQL 을 idempotent 하게 적용한다.
+
+## 사용법
+
+```text
+imgsync migrate [flags]
+```
+
+## 플래그
+
+| 플래그 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `--dir` | string | `/etc/imgsync/migrations` | 마이그레이션 SQL 파일(`*.up.sql`)이 있는 디렉터리 |
+
+## 환경 변수
+
+| 변수 | 필수 | 설명 |
+|---|---|---|
+| `IMGSYNC_DSN` | 필수 | PostgreSQL 연결 문자열 |
+| `IMGSYNC_MIGRATIONS_DIR` | 선택 | `--dir` 플래그의 환경 변수 형태 |
+
+자세한 표는 [환경 변수](../configuration/environment-variables.md)를 참고.
+
+## 예시
+
+로컬에서 직접 실행:
+
+```bash
+IMGSYNC_DSN=postgres://localhost/imgsync imgsync migrate --dir ./migrations
+```
+
+K8s (Helm pre-install hook 으로 자동 실행):
+
+```bash
+# 일반적으로 사용자가 직접 부를 일은 없음.
+# helm install / helm upgrade 시 pre-install Job 이 자동으로 호출함.
+helm install imgsync deploy/helm/imgsync --set image.tag=<tag>
+```
+
+## 동작
+
+`migrations/*.up.sql` 파일을 파일명 정렬 순(숫자 prefix)으로 읽어 순서대로 적용한다. 이미 적용된 마이그레이션은 skip 하므로 여러 번 실행해도 안전하다(idempotent). Helm 차트의 pre-install/pre-upgrade hook Job 도 동일한 서브커맨드를 호출하므로, 운영 환경에서 사용자가 직접 실행할 경우는 거의 없다.
