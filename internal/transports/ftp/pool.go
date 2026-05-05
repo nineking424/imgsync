@@ -19,6 +19,10 @@ type PoolConfig struct {
 	AuthUser     string
 	AuthPassword string
 	DialTimeout  time.Duration // optional; defaults to 10s
+	// OnPoolChange, if non-nil, is invoked whenever a host's in_use or idle
+	// count changes. Keep callback work O(1) — it runs on the hot path of
+	// every Acquire/Release. nil-safe.
+	OnPoolChange func(host string, inUse, idle int)
 }
 
 // PooledConn wraps a live FTP connection plus its checkout state.
@@ -152,7 +156,11 @@ func (p *Pool) Acquire(ctx context.Context, host string) (*PooledConn, error) {
 		}
 
 		if acquired != nil {
+			inUseSnap, idleSnap := hp.inUse, len(hp.idle)
 			p.mu.Unlock()
+			if p.cfg.OnPoolChange != nil {
+				p.cfg.OnPoolChange(host, inUseSnap, idleSnap)
+			}
 			if needsPing {
 				if err := acquired.NoOp(); err != nil {
 					_ = acquired.Quit()
@@ -160,7 +168,11 @@ func (p *Pool) Acquire(ctx context.Context, host string) (*PooledConn, error) {
 					hp2 := p.hosts[host]
 					hp2.inUse--
 					wakeOneWaiter(hp2) // freed a slot; wake a parked waiter
+					inUseSnap, idleSnap := hp2.inUse, len(hp2.idle)
 					p.mu.Unlock()
+					if p.cfg.OnPoolChange != nil {
+						p.cfg.OnPoolChange(host, inUseSnap, idleSnap)
+					}
 					// Loop back to try again (idle or fresh dial).
 					continue
 				}
@@ -171,14 +183,22 @@ func (p *Pool) Acquire(ctx context.Context, host string) (*PooledConn, error) {
 		// No idle. Can we open a new one?
 		if hp.inUse < p.cfg.MaxPerHost {
 			hp.inUse++
+			inUseSnap, idleSnap := hp.inUse, len(hp.idle)
 			p.mu.Unlock()
+			if p.cfg.OnPoolChange != nil {
+				p.cfg.OnPoolChange(host, inUseSnap, idleSnap)
+			}
 			conn, err := p.dial(ctx, host)
 			if err != nil {
 				p.mu.Lock()
 				hp2 := p.hosts[host]
 				hp2.inUse--
 				wakeOneWaiter(hp2) // slot freed; unblock a parked waiter
+				inUseSnap, idleSnap := hp2.inUse, len(hp2.idle)
 				p.mu.Unlock()
+				if p.cfg.OnPoolChange != nil {
+					p.cfg.OnPoolChange(host, inUseSnap, idleSnap)
+				}
 				return nil, err
 			}
 			return &PooledConn{c: conn, host: host, pool: p, lastUsed: time.Now()}, nil
@@ -247,9 +267,9 @@ func (p *Pool) dial(ctx context.Context, host string) (*ftp.ServerConn, error) {
 
 func (p *Pool) release(host string, c *ftp.ServerConn, broken bool) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	hp, ok := p.hosts[host]
 	if !ok {
+		p.mu.Unlock()
 		_ = c.Quit()
 		return
 	}
@@ -266,4 +286,9 @@ func (p *Pool) release(host string, c *ftp.ServerConn, broken bool) {
 	}
 	// Wake one waiter if any.
 	wakeOneWaiter(hp)
+	inUseSnap, idleSnap := hp.inUse, len(hp.idle)
+	p.mu.Unlock()
+	if p.cfg.OnPoolChange != nil {
+		p.cfg.OnPoolChange(host, inUseSnap, idleSnap)
+	}
 }
