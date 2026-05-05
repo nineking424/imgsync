@@ -90,6 +90,6 @@ sniffer:
 
 ## 관련 페이지
 
-- Sniffer 개념 → [../concepts/sniffer.md](../concepts/sniffer.md)
+- Sniffer 개념 → [../concepts/components.md](../concepts/components.md)
 - 전체 환경 변수 → [environment-variables.md](environment-variables.md)
 - 프로토콜 설정 → [protocols.md](protocols.md)
