@@ -20,7 +20,7 @@ imgsync worker [flags]
 | `IMGSYNC_WORKERS` | 선택 | 동시 lease 수 |
 | `IMGSYNC_POD_NAME` | 선택 | lease 소유자 식별자 (K8s `metadata.name`) |
 | `IMGSYNC_FTP_*` | 선택 | FTP 연결 파라미터 6개 |
-| `IMGSYNC_HEALTH_ADDR` | 선택 | `/healthz` 수신 주소 (기본 `:8080`) |
+| `IMGSYNC_HEALTH_ADDR` | 선택 | health 리스너 바인드 (기본 `:8080`). `/livez`, `/readyz`, `/healthz`, `/metrics` 가 모두 같은 포트에 뜬다. |
 
 자세한 표는 [환경 변수](../configuration/environment-variables.md)를 참고.
 
