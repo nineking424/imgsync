@@ -66,13 +66,46 @@ imgsync 는 의도적으로 **로그가 적다**. 정상 동작은 `transfer_eve
 
 ## 메트릭 (Prometheus)
 
-현재 imgsync 는 Prometheus 메트릭을 노출하지 **않는다**. 2026-05 시점의 상태는 다음과 같다:
+imgsync 는 `:9090/metrics` 에서 Prometheus 메트릭을 노출한다. 아래는 메트릭 카탈로그, `transfer_events` 매핑, 권장 알람, 그리고 `OnLeaseAttempt` 의 알려진 한계를 정리한 것이다.
 
-- 진단의 1차 채널은 `/healthz` JSON + 표준출력 로그.
-- 큐 깊이 / 처리량 / 실패율 같은 시계열 지표가 필요하면 `transfer_events` 테이블을 직접 폴링한다 — [런북 §7](runbook.md#7-sql) 의 SQL 컬렉션을 참고.
-- 향후 계획: `/metrics` 엔드포인트에서 `imgsync_lease_attempts_total`, `imgsync_lease_success_total`, `imgsync_sweep_cycles_total`, `imgsync_pool_in_use` 등을 노출하는 안이 검토 중이다. 디자인 문서가 확정되기 전까지는 SQL + `/healthz` 를 표준으로 본다.
+### 메트릭 카탈로그
 
-알람을 거는 짧은 가이드:
+| 메트릭 | 모드 | 산출 | 라벨 (카디널리티) |
+|---|---|---|---|
+| `imgsync_jobs_in_status` | scrape | `SELECT status, COUNT(*) FROM transfer_jobs GROUP BY status` (2초 timeout) | `status` (5) |
+| `imgsync_lease_attempts_total` | push | `worker.Runner.OnLeaseAttempt` | `result` (success/empty/error) |
+| `imgsync_jobs_processed_total` | push | `worker.OnFinish` | `result` (success/skip/fail/expire/dead) |
+| `imgsync_job_duration_seconds` | push | `worker.OnFinish` (histogram, lease→Send 완료. buckets: `[0.1, 0.5, 1, 2, 5, 10, 30, 60, 300, 1800]` 초) | `src`, `dst`, `result` (~45) |
+| `imgsync_sweep_cycles_total` | push | `sweeper.Config.OnCycle` | — |
+| `imgsync_lease_lock_age_seconds` | scrape | `SELECT EXTRACT(EPOCH FROM NOW()-MIN(locked_at)) WHERE status='leased'` | — |
+| `imgsync_db_pool_conns` | scrape | `pgxpool.Stat()` | `state` (in_use/idle/max) |
+| `imgsync_ftp_pool_size` | push | `ftp.Pool` checkout/release | `host`, `state` (in_use/idle) |
+| `imgsync_workers_active` | push | `Runner` goroutine start/stop | `pod` |
+| `imgsync_sniffer_enqueue_total` | push | `Sniffer.RunOnce` 결과 n 만큼 Add | `source` |
+| `imgsync_sniffer_run_errors_total` | push | `Sniffer.RunOnce` err 발생 시 Inc | `source` |
 
-- 즉시 page: `/readyz` 503, `now() - last_sweep_ts > 5분`, `dead` 행이 분당 X 건 초과.
-- 다음 영업일: `pending` 누적이 임계값 이상 1시간 지속, `pool_in_use ≈ pool_max` 가 10분 이상 지속.
+### `transfer_events.status` ↔ metric 매핑
+
+| `transfer_events.status` | 대응 metric & label |
+|---|---|
+| `enqueue` | `imgsync_sniffer_enqueue_total{source}` |
+| `lease` | `imgsync_lease_attempts_total{result=success}` + `imgsync_jobs_in_status{status=leased}` 변동 |
+| `success` | `imgsync_jobs_processed_total{result=success}` + `imgsync_job_duration_seconds` observe |
+| `skip` | `imgsync_jobs_processed_total{result=skip}` |
+| `fail` | `imgsync_jobs_processed_total{result=fail}` |
+| `expire` | `imgsync_jobs_processed_total{result=expire}` (sweeper 회수 시) |
+| `dead` | `imgsync_jobs_processed_total{result=dead}` |
+
+### 권장 알람
+
+| PromQL | 임계값 | 의미 |
+|---|---|---|
+| `imgsync_jobs_in_status{status="pending"}` | SLO 초과 지속 | 큐 적체 — 워커 스케일 또는 sniffer 폭주 확인 |
+| `rate(imgsync_jobs_processed_total{result="fail"}[5m])` | > X (운영 환경별 설정) | 실패율 급증 — `transfer_events` SQL 로 detail 조사 |
+| `imgsync_lease_lock_age_seconds` | > 600 (10분) | Stuck lease — sweeper 동작 확인 (`imgsync_sweep_cycles_total` rate) |
+
+### `OnLeaseAttempt` 의 한계
+
+`OnLeaseAttempt` 콜백은 `func(bool)` 단일 인자 시그니처로, 성공(true) / 빈 큐(false) 두 가지만 구분한다. 그 결과 DB driver 오류는 콜백 바깥의 별도 경로에서 log + retry 처리되며, `imgsync_lease_attempts_total{result="error"}` 로는 잡히지 않는다.
+
+운영 의미: lease error 가 반복될 경우 이 메트릭만 보면 놓칠 수 있다. DB 커넥션 이상은 `imgsync_db_pool_conns` scrape, pgx 드라이버 로그, `/readyz` probe 의 조합으로 감지해야 한다. 콜백 시그니처 확장은 향후 plan 에서 처리한다.
