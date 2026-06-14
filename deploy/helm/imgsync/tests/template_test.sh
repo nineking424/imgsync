@@ -132,4 +132,41 @@ grep -q "kind: ServiceMonitor" "$TMP/t-sm.yaml" || \
 grep -c "port: http-metrics" "$TMP/t-sm.yaml" | grep -q "^[1-9]" || \
   { echo "FAIL: ServiceMonitor missing http-metrics endpoint"; exit 1; }
 
+# ─── Test 13: worker ConfigMap FTP env keys == set the binary reads ─
+# The worker binary (cmd/imgsync/worker.go) reads exactly these FTP env vars
+# via envInt (strconv.Atoi, integer SECONDS — not Go duration strings):
+#   IMGSYNC_FTP_MAX_PER_HOST  IMGSYNC_FTP_IDLE_TTL_SEC
+#   IMGSYNC_FTP_NOOP_AFTER_SEC  IMGSYNC_FTP_HOST_CAP
+# Any other IMGSYNC_FTP_* key in the ConfigMap is inert (silently ignored),
+# so helm tuning of FTP concurrency/idle does nothing (issue #20). Assert the
+# rendered worker ConfigMap's FTP key SET equals the binary's read set exactly.
+echo "==> worker ConfigMap FTP env keys match binary"
+awk '/^# Source: imgsync\/templates\/configmap\.yaml/{p=1} p; p && /^---$/{exit}' \
+  "$TMP/t1.yaml" > "$TMP/t1-cm.yaml"
+[ -s "$TMP/t1-cm.yaml" ] || { echo "FAIL: could not isolate worker configmap manifest"; exit 1; }
+
+# Keys the binary actually reads (sorted).
+EXPECTED_FTP_KEYS=$(printf '%s\n' \
+  IMGSYNC_FTP_HOST_CAP \
+  IMGSYNC_FTP_IDLE_TTL_SEC \
+  IMGSYNC_FTP_MAX_PER_HOST \
+  IMGSYNC_FTP_NOOP_AFTER_SEC | sort)
+
+# FTP keys actually present in the rendered ConfigMap data block (sorted).
+ACTUAL_FTP_KEYS=$(grep -oE 'IMGSYNC_FTP_[A-Z_]+' "$TMP/t1-cm.yaml" | sort -u)
+
+if [ "$ACTUAL_FTP_KEYS" != "$EXPECTED_FTP_KEYS" ]; then
+  echo "FAIL: worker ConfigMap FTP env keys do not match the set the binary reads"
+  echo "  expected (cmd/imgsync/worker.go):"; echo "$EXPECTED_FTP_KEYS" | sed 's/^/    /'
+  echo "  actual   (rendered ConfigMap):";    echo "$ACTUAL_FTP_KEYS"   | sed 's/^/    /'
+  exit 1
+fi
+
+# The idle backoff is hardcoded in the worker (50ms/1s); these keys are inert
+# and must NOT be advertised as configurable.
+if grep -qE 'IMGSYNC_IDLE_SLEEP_(MIN|MAX)' "$TMP/t1-cm.yaml"; then
+  echo "FAIL: worker ConfigMap exports inert IMGSYNC_IDLE_SLEEP_* keys (idle backoff is hardcoded)"
+  exit 1
+fi
+
 echo "PASS: helm chart structural tests green"

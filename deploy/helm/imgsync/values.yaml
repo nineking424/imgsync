@@ -33,14 +33,16 @@ ftpSecretRef:
   userKey: "user"
   passwordKey: "password"
 
-# Worker runtime config (non-secret)
+# Worker runtime config (non-secret). Keys map 1:1 to the env vars the worker
+# binary reads via strconv.Atoi (cmd/imgsync/worker.go) — integer SECONDS, not
+# Go duration strings. The idle backoff (50ms/1s) is hardcoded in the binary
+# and is intentionally NOT surfaced here.
 worker:
   workers: 4                  # goroutines per pod
-  idleSleepMin: "50ms"
-  idleSleepMax: "1s"
-  ftpHostMaxConns: 8          # cluster-wide cap per host (advisory lock)
-  ftpHostPoolMaxIdle: 5
-  ftpHostPoolIdleTTL: "5m"
+  ftpMaxPerHost: 4            # per-pod FTP pool: max conns kept per host
+  ftpIdleTTLSec: 300         # idle FTP conn time-to-live, seconds
+  ftpNoopAfterSec: 60        # send NOOP after this many idle seconds
+  ftpHostCap: 8              # cluster-wide cap per host (advisory lock)
 
 # Health & probes
 health:
