@@ -71,6 +71,7 @@ func TestRunner_PanicInProcessJob_WorkerSurvivesAndJobAdvances(t *testing.T) {
 		src := filepath.Join(dir, "src", "g"+string(rune('0'+i)))
 		dst := filepath.Join(dir, "dst", "g"+string(rune('0'+i)))
 		require.NoError(t, os.MkdirAll(filepath.Dir(src), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
 		require.NoError(t, os.WriteFile(src, []byte("ok-"+string(rune('0'+i))), 0o644))
 		_, _, err := jobs.Enqueue(ctx, pool, jobs.EnqueueArgs{
 			TraceID: "good-" + string(rune('0'+i)), Src: src, Dst: dst,

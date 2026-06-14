@@ -31,9 +31,6 @@ func (t *Transport) Send(
 		return 0, "", err
 	}
 	dir := filepath.Dir(dst)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return 0, "", fmt.Errorf("localfs: mkdir dest: %w", err)
-	}
 	tmp, err := os.CreateTemp(dir, ".imgsync-*.tmp")
 	if err != nil {
 		// A missing parent dir (os.ErrNotExist) is a permanent misconfiguration:
