@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/db"
+	"github.com/nineking424/imgsync/internal/env"
 	"github.com/nineking424/imgsync/internal/health"
 	"github.com/nineking424/imgsync/internal/hostcap"
 	"github.com/nineking424/imgsync/internal/metrics"
@@ -36,7 +36,7 @@ func newWorkerCmd() *cobra.Command {
 			if dsn == "" {
 				return errors.New("IMGSYNC_DSN is required")
 			}
-			workers := envInt("IMGSYNC_WORKERS", 4)
+			workers := env.Int("IMGSYNC_WORKERS", 4)
 			podName := os.Getenv("IMGSYNC_POD_NAME")
 			if podName == "" {
 				h, _ := os.Hostname()
@@ -59,9 +59,9 @@ func newWorkerCmd() *cobra.Command {
 			m.AttachOldestPending(pool)
 
 			ftpPool := pftp.NewPool(pftp.PoolConfig{
-				MaxPerHost:   envInt("IMGSYNC_FTP_MAX_PER_HOST", 4),
-				IdleTTL:      time.Duration(envInt("IMGSYNC_FTP_IDLE_TTL_SEC", 300)) * time.Second,
-				NoopAfter:    time.Duration(envInt("IMGSYNC_FTP_NOOP_AFTER_SEC", 60)) * time.Second,
+				MaxPerHost:   env.Int("IMGSYNC_FTP_MAX_PER_HOST", 4),
+				IdleTTL:      time.Duration(env.Int("IMGSYNC_FTP_IDLE_TTL_SEC", 300)) * time.Second,
+				NoopAfter:    time.Duration(env.Int("IMGSYNC_FTP_NOOP_AFTER_SEC", 60)) * time.Second,
 				AuthUser:     os.Getenv("IMGSYNC_FTP_USER"),
 				AuthPassword: os.Getenv("IMGSYNC_FTP_PASSWORD"),
 				OnPoolChange: m.OnFTPPoolChange,
@@ -73,7 +73,7 @@ func newWorkerCmd() *cobra.Command {
 			ftpSrc := srcftp.NewSource(ftpPool)
 			ftpRaw := pftp.NewTransport(ftpPool)
 			ftpTr, closeHostcap, err := newHostcapTransport(ctx, dsn, pool, ftpRaw,
-				hostcap.Config{Cap: envInt("IMGSYNC_FTP_HOST_CAP", 8)})
+				hostcap.Config{Cap: env.Int("IMGSYNC_FTP_HOST_CAP", 8)})
 			if err != nil {
 				return err
 			}
@@ -121,7 +121,7 @@ func newWorkerCmd() *cobra.Command {
 			// Liveness staleness bound: ~10x the idle MaxDelay (1s) so only a
 			// genuinely wedged lease loop trips /livez and the kubelet restarts
 			// the pod (issue #36). Override via IMGSYNC_LIVENESS_THRESHOLD_SEC.
-			livenessThreshold := time.Duration(envInt("IMGSYNC_LIVENESS_THRESHOLD_SEC", 10)) * time.Second
+			livenessThreshold := time.Duration(env.Int("IMGSYNC_LIVENESS_THRESHOLD_SEC", 10)) * time.Second
 			hs := health.NewServer(pool, status,
 				health.WithMetrics(m.Handler()),
 				health.WithLivenessThreshold(livenessThreshold))
@@ -190,19 +190,4 @@ func newHostcapTransport(ctx context.Context, dsn string, _ *pgxpool.Pool, inner
 		return nil, nil, err
 	}
 	return hostcap.Wrap(capPool, inner, cfg), capPool.Close, nil
-}
-
-func envInt(key string, def int) int {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		fmt.Fprintf(os.Stderr,
-			"imgsync worker: warning: %s=%q is not a valid integer, using default %d\n",
-			key, v, def)
-		return def
-	}
-	return n
 }
