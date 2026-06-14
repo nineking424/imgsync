@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -143,7 +144,7 @@ func TestProcessJob_RetryableTransportError_BackoffPending(t *testing.T) {
 	srcPath := filepath.Join(dir, "in.txt")
 	require.NoError(t, os.WriteFile(srcPath, []byte("data"), 0o644))
 
-	enqueueLocal(t, pool, "retry-1", srcPath, "/no/such/dst-dir/out", 3)
+	enqueueLocal(t, pool, "retry-1", srcPath, filepath.Join(dir, "out"), 3)
 	job, err := worker.LeaseJob(ctx, pool, "w-1")
 	require.NoError(t, err)
 
@@ -151,7 +152,7 @@ func TestProcessJob_RetryableTransportError_BackoffPending(t *testing.T) {
 		Pool:      pool,
 		LockedBy:  "w-1",
 		Source:    localfs.NewSource(),
-		Transport: tlocalfs.NewTransport(),
+		Transport: retryableTransport{},
 	}
 	_, err = worker.ProcessJob(ctx, deps, job)
 	require.NoError(t, err)
@@ -180,7 +181,7 @@ func TestProcessJob_RetryableHitsMaxAttempts_TransitionsToDead(t *testing.T) {
 	srcPath := filepath.Join(dir, "in.txt")
 	require.NoError(t, os.WriteFile(srcPath, []byte("data"), 0o644))
 
-	enqueueLocal(t, pool, "exhaust-1", srcPath, "/no/such/dst-dir/out", 1) // max_attempts=1
+	enqueueLocal(t, pool, "exhaust-1", srcPath, filepath.Join(dir, "out"), 1) // max_attempts=1
 	job, err := worker.LeaseJob(ctx, pool, "w-1")
 	require.NoError(t, err)
 
@@ -188,7 +189,7 @@ func TestProcessJob_RetryableHitsMaxAttempts_TransitionsToDead(t *testing.T) {
 		Pool:      pool,
 		LockedBy:  "w-1",
 		Source:    localfs.NewSource(),
-		Transport: tlocalfs.NewTransport(),
+		Transport: retryableTransport{},
 	}
 	_, err = worker.ProcessJob(ctx, deps, job)
 	require.NoError(t, err)
@@ -239,4 +240,14 @@ type truncatingTransport struct{ actual int64 }
 func (t *truncatingTransport) Send(_ context.Context, _ string, body io.Reader, _ int64) (int64, string, error) {
 	_, _ = io.Copy(io.Discard, body) // consume reader so callers don't deadlock
 	return t.actual, "deadbeef", nil
+}
+
+// retryableTransport returns a plain (non-sentinel) error so the worker treats
+// it as retryable. Used to exercise the backoff/retry-exhaustion paths without
+// relying on a specific transport's error classification.
+type retryableTransport struct{}
+
+func (retryableTransport) Send(_ context.Context, _ string, body io.Reader, _ int64) (int64, string, error) {
+	_, _ = io.Copy(io.Discard, body) // consume reader so callers don't deadlock
+	return 0, "", errors.New("transient transport failure")
 }
