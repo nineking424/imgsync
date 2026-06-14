@@ -117,7 +117,13 @@ func newWorkerCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hs := health.NewServer(pool, status, health.WithMetrics(m.Handler()))
+			// Liveness staleness bound: ~10x the idle MaxDelay (1s) so only a
+			// genuinely wedged lease loop trips /livez and the kubelet restarts
+			// the pod (issue #36). Override via IMGSYNC_LIVENESS_THRESHOLD_SEC.
+			livenessThreshold := time.Duration(envInt("IMGSYNC_LIVENESS_THRESHOLD_SEC", 10)) * time.Second
+			hs := health.NewServer(pool, status,
+				health.WithMetrics(m.Handler()),
+				health.WithLivenessThreshold(livenessThreshold))
 			go func() { _ = hs.Serve(ln) }()
 			defer hs.Close()
 
