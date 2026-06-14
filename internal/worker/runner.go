@@ -40,6 +40,10 @@ type Runner struct {
 	// metric result label for that outcome (succeeded / skipped / dead / fail).
 	// Optional; nil-safe.
 	OnFinish func(job *Job, result string)
+	// OnRetry fires when a job is rescheduled for retry (DB status=pending,
+	// attempts<max), not on a terminal outcome. stage is the error-category that
+	// triggered the retry (e.g. "transport", "open"). Optional; nil-safe.
+	OnRetry func(job *Job, stage string)
 	// OnLeaseAttempt fires after every LeaseJob call. success=true means a
 	// row was acquired and dispatched; success=false means empty queue or
 	// transient DB error. Optional; nil-safe.
@@ -162,6 +166,11 @@ func (r *Runner) processOne(ctx context.Context, idx int, lockedBy string, job *
 
 	result, _ := ProcessJob(ctx, Deps{
 		Pool: r.Pool, LockedBy: lockedBy, Source: src, Transport: tr,
+		OnRetry: func(stage string) {
+			if r.OnRetry != nil {
+				r.OnRetry(job, stage)
+			}
+		},
 	}, job)
 	r.fire(job, result)
 }

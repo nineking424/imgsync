@@ -56,6 +56,7 @@ func newWorkerCmd() *cobra.Command {
 			m.AttachQueueDepth(pool)
 			m.AttachDBPool(pool)
 			m.AttachLeaseLockAge(pool)
+			m.AttachOldestPending(pool)
 
 			ftpPool := pftp.NewPool(pftp.PoolConfig{
 				MaxPerHost:   envInt("IMGSYNC_FTP_MAX_PER_HOST", 4),
@@ -148,6 +149,9 @@ func newWorkerCmd() *cobra.Command {
 			}
 			r.OnFinish = func(j *worker.Job, result string) {
 				m.OnJobFinished(j.SrcProtocol, j.DstProtocol, result, j.Duration())
+			}
+			r.OnRetry = func(j *worker.Job, stage string) {
+				m.OnRetry(j.SrcProtocol, j.DstProtocol, stage)
 			}
 			r.OnWorkerStart = func(pod string) {
 				atomic.AddInt32(&workersGauge, 1)

@@ -160,6 +160,7 @@ func RunSniffer(ctx context.Context, cfg SnifferConfig) error {
 	if n, err := s.RunOnce(ctx); err != nil {
 		log.Printf("sniffer run error: %v", err)
 	} else {
+		m.OnSnifferRun(cfg.SourceID)
 		log.Printf("sniffer enqueued %d new jobs", n)
 	}
 
@@ -173,6 +174,7 @@ func RunSniffer(ctx context.Context, cfg SnifferConfig) error {
 				log.Printf("sniffer run error: %v", err)
 				continue
 			}
+			m.OnSnifferRun(cfg.SourceID)
 			log.Printf("sniffer enqueued %d new jobs", n)
 		}
 	}
