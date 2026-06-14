@@ -43,6 +43,9 @@ worker:
   ftpIdleTTLSec: 300         # idle FTP conn time-to-live, seconds
   ftpNoopAfterSec: 60        # send NOOP after this many idle seconds
   ftpHostCap: 8              # cluster-wide cap per host (advisory lock)
+  retentionDays: 0           # OPT-IN: delete terminal rows older than N days; 0 disables
+  retentionBatch: 1000       # rows per batched DELETE (avoids long locks)
+  retentionIntervalSec: 3600 # retention sweep loop interval, seconds
 
 # Health & probes
 health:

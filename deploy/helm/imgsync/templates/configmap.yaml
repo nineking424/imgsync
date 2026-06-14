@@ -10,4 +10,7 @@ data:
   IMGSYNC_FTP_IDLE_TTL_SEC:   "{{ .Values.worker.ftpIdleTTLSec }}"
   IMGSYNC_FTP_NOOP_AFTER_SEC: "{{ .Values.worker.ftpNoopAfterSec }}"
   IMGSYNC_FTP_HOST_CAP:       "{{ .Values.worker.ftpHostCap }}"
+  IMGSYNC_RETENTION_DAYS:     "{{ .Values.worker.retentionDays }}"
+  IMGSYNC_RETENTION_BATCH:    "{{ .Values.worker.retentionBatch }}"
+  IMGSYNC_RETENTION_INTERVAL_SEC: "{{ .Values.worker.retentionIntervalSec }}"
   IMGSYNC_HEALTH_ADDR:        ":{{ .Values.health.port }}"
