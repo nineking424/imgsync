@@ -16,6 +16,7 @@ import (
 	"github.com/nineking424/imgsync/internal/health"
 	"github.com/nineking424/imgsync/internal/hostcap"
 	"github.com/nineking424/imgsync/internal/metrics"
+	"github.com/nineking424/imgsync/internal/retention"
 	srcftp "github.com/nineking424/imgsync/internal/sources/ftp"
 	"github.com/nineking424/imgsync/internal/sources/localfs"
 	"github.com/nineking424/imgsync/internal/sweeper"
@@ -138,6 +139,21 @@ func newWorkerCmd() *cobra.Command {
 					},
 				})
 			}()
+
+			// Retention is OPT-IN: IMGSYNC_RETENTION_DAYS=0 (default) disables
+			// it and nothing is ever deleted. A positive value deletes terminal
+			// rows older than that many days (events cascade via the FK).
+			retentionDays := envInt("IMGSYNC_RETENTION_DAYS", 0)
+			if retentionDays > 0 {
+				go func() {
+					_ = retention.Run(ctx, pool, retention.Config{
+						Window:    time.Duration(retentionDays) * 24 * time.Hour,
+						BatchSize: envInt("IMGSYNC_RETENTION_BATCH", 1000),
+						Interval:  time.Duration(envInt("IMGSYNC_RETENTION_INTERVAL_SEC", 3600)) * time.Second,
+						OnCycle:   m.OnRetention,
+					})
+				}()
+			}
 
 			// Compose: status (existing) + metrics (new). Domain calls a single
 			// callback; chaining keeps the runner ignorant of multiple consumers.

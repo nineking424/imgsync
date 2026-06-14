@@ -24,6 +24,7 @@ type Metrics struct {
 	jobRetries     *prometheus.CounterVec
 	jobDuration    *prometheus.HistogramVec
 	sweepCycles    prometheus.Counter
+	retentionRows  prometheus.Counter
 	ftpPoolSize    *prometheus.GaugeVec
 	snifferEnq     *prometheus.CounterVec
 	snifferErr     *prometheus.CounterVec
@@ -62,6 +63,10 @@ func New() *Metrics {
 			Name: "imgsync_sweep_cycles_total",
 			Help: "Number of sweeper cycles that completed (regardless of work done).",
 		}),
+		retentionRows: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "imgsync_retention_rows_deleted_total",
+			Help: "Number of terminal transfer_jobs rows deleted by retention.",
+		}),
 		ftpPoolSize: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "imgsync_ftp_pool_size",
 			Help: "FTP connection pool size per host, labeled by state.",
@@ -86,7 +91,7 @@ func New() *Metrics {
 	}
 	reg.MustRegister(
 		m.leaseAttempts, m.jobsProcessed, m.jobRetries, m.jobDuration, m.sweepCycles,
-		m.ftpPoolSize, m.snifferEnq, m.snifferErr, m.snifferLastRun, m.workersActive,
+		m.retentionRows, m.ftpPoolSize, m.snifferEnq, m.snifferErr, m.snifferLastRun, m.workersActive,
 		newSnifferLagCollector(&m.snifferMu, m.snifferLast, time.Now),
 	)
 	return m
@@ -136,6 +141,9 @@ func (m *Metrics) OnRetry(src, dst, stage string) {
 }
 
 func (m *Metrics) OnSweepCycle() { m.sweepCycles.Inc() }
+
+// OnRetention records how many terminal rows a retention cycle deleted.
+func (m *Metrics) OnRetention(deleted int) { m.retentionRows.Add(float64(deleted)) }
 func (m *Metrics) OnSnifferEnqueue(source string, n int) {
 	m.snifferEnq.WithLabelValues(source).Add(float64(n))
 }
