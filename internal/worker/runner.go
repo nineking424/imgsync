@@ -30,7 +30,10 @@ type Runner struct {
 	IdleBackoff  *backoff.Idle
 	SourceFor    func(protocol string) (SourceLike, error)
 	TransportFor func(protocol string) (TransportLike, error)
-	OnFinish     func(*Job) // optional, test hook
+	// OnFinish fires after each job reaches a terminal outcome. result is the
+	// metric result label for that outcome (succeeded / skipped / dead / fail).
+	// Optional; nil-safe.
+	OnFinish func(job *Job, result string)
 	// OnLeaseAttempt fires after every LeaseJob call. success=true means a
 	// row was acquired and dispatched; success=false means empty queue or
 	// transient DB error. Optional; nil-safe.
@@ -111,7 +114,7 @@ func (r *Runner) loop(ctx context.Context, idx int) {
 			_ = writeTerminal(ctx, Deps{Pool: r.Pool, LockedBy: lockedBy}, job,
 				"dead", "dead",
 				map[string]any{"error": err.Error(), "stage": "source-factory"}, true)
-			r.fire(job)
+			r.fire(job, "dead")
 			continue
 		}
 		tr, err := r.TransportFor(job.DstProtocol)
@@ -119,20 +122,20 @@ func (r *Runner) loop(ctx context.Context, idx int) {
 			_ = writeTerminal(ctx, Deps{Pool: r.Pool, LockedBy: lockedBy}, job,
 				"dead", "dead",
 				map[string]any{"error": err.Error(), "stage": "transport-factory"}, true)
-			r.fire(job)
+			r.fire(job, "dead")
 			continue
 		}
 
-		_ = ProcessJob(ctx, Deps{
+		result, _ := ProcessJob(ctx, Deps{
 			Pool: r.Pool, LockedBy: lockedBy, Source: src, Transport: tr,
 		}, job)
-		r.fire(job)
+		r.fire(job, result)
 	}
 }
 
-func (r *Runner) fire(job *Job) {
+func (r *Runner) fire(job *Job, result string) {
 	if r.OnFinish != nil {
-		r.OnFinish(job)
+		r.OnFinish(job, result)
 	}
 }
 

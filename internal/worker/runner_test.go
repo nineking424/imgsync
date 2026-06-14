@@ -46,7 +46,7 @@ func TestRunner_DrainsQueue(t *testing.T) {
 	}
 
 	var processed int64
-	r.OnFinish = func(_ *worker.Job) { atomic.AddInt64(&processed, 1) }
+	r.OnFinish = func(_ *worker.Job, _ string) { atomic.AddInt64(&processed, 1) }
 
 	var wg sync.WaitGroup
 	wg.Add(1)

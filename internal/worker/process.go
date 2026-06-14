@@ -23,7 +23,12 @@ type Deps struct {
 // ProcessJob drives a single leased job to a terminal status. It never returns
 // the worker-loop error from a job-level outcome — only DB write failures
 // propagate. Terminal status writes use a tx so events match status.
-func ProcessJob(ctx context.Context, d Deps, job *Job) error {
+//
+// The first return value is the terminal metric result label
+// (succeeded / skipped / dead / fail) describing the job outcome. Note that the
+// retry path (DB status=pending) reports result="fail" for the metric even
+// though the transfer_jobs.status value is "pending".
+func ProcessJob(ctx context.Context, d Deps, job *Job) (string, error) {
 	start := time.Now()
 
 	body, srcSize, openErr := d.Source.Open(ctx, job.Src)
@@ -71,7 +76,10 @@ func ProcessJob(ctx context.Context, d Deps, job *Job) error {
 	}
 	closed = true
 
-	return writeSuccess(ctx, d, job, written, shaHex, start)
+	if err := writeSuccess(ctx, d, job, written, shaHex, start); err != nil {
+		return "", err
+	}
+	return "succeeded", nil
 }
 
 // counter wraps an io.Reader to record bytes read.
@@ -111,27 +119,41 @@ INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,'su
 	return tx.Commit(ctx)
 }
 
-func classifyAndWrite(ctx context.Context, d Deps, job *Job, jobErr error, detail map[string]any, _ time.Time) error {
+// classifyAndWrite maps a job-level error to its terminal write and returns the
+// metric result label for that outcome (skipped / dead / fail).
+func classifyAndWrite(ctx context.Context, d Deps, job *Job, jobErr error, detail map[string]any, _ time.Time) (string, error) {
 	switch {
 	case errors.Is(jobErr, transfer.ErrSkippable):
-		return writeTerminal(ctx, d, job, "skipped", "skip", detail, false)
+		if err := writeTerminal(ctx, d, job, "skipped", "skip", detail, false); err != nil {
+			return "", err
+		}
+		return "skipped", nil
 	case errors.Is(jobErr, transfer.ErrPermanent):
-		return writeTerminal(ctx, d, job, "dead", "dead", detail, true)
+		if err := writeTerminal(ctx, d, job, "dead", "dead", detail, true); err != nil {
+			return "", err
+		}
+		return "dead", nil
 	default:
 		return writeRetryOrDead(ctx, d, job, jobErr, detail)
 	}
 }
 
-func writeRetryOrDead(ctx context.Context, d Deps, job *Job, jobErr error, detail map[string]any) error {
+// writeRetryOrDead schedules a retry (DB status=pending) or, when attempts are
+// exhausted, writes a terminal dead row. The metric result is "dead" when the
+// job is exhausted, otherwise "fail" for the scheduled retry.
+func writeRetryOrDead(ctx context.Context, d Deps, job *Job, jobErr error, detail map[string]any) (string, error) {
 	nextAttempts := job.Attempts + 1
 	if nextAttempts >= job.MaxAttempts {
-		return writeTerminalWithAttempts(ctx, d, job, "dead", "dead", detail, nextAttempts)
+		if err := writeTerminalWithAttempts(ctx, d, job, "dead", "dead", detail, nextAttempts); err != nil {
+			return "", err
+		}
+		return "dead", nil
 	}
 	backoff := time.Duration(1<<nextAttempts) * time.Second // 2,4,8,16,32...
 	detailJSON, _ := json.Marshal(detail)
 	tx, err := d.Pool.Begin(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `
@@ -139,14 +161,17 @@ UPDATE transfer_jobs
 SET status='pending', attempts=$2, next_run_at=NOW()+$3::INTERVAL,
     locked_at=NULL, locked_by=NULL, updated_at=NOW()
 WHERE id=$1`, job.ID, nextAttempts, fmt.Sprintf("%d seconds", int(backoff.Seconds()))); err != nil {
-		return err
+		return "", err
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,'fail',$3)`,
 		job.TraceID, job.ID, detailJSON); err != nil {
-		return err
+		return "", err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return "fail", nil
 }
 
 func writeTerminal(ctx context.Context, d Deps, job *Job, jobStatus, eventStatus string, detail map[string]any, bumpAttempts bool) error {

@@ -48,7 +48,8 @@ func TestC0_SizeUnknownMismatch_TransitionsToDead(t *testing.T) {
 		Source:    &fakeUnknownSizeSource{payload: "hello world"}, // 11 bytes read
 		Transport: &truncatingTransport{actual: 5},                // claims 5 ACK'd
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	var status string
 	require.NoError(t, pool.QueryRow(ctx,
@@ -73,7 +74,8 @@ func TestC3_SkippedJob_ExactlyOneSkipEventWithReason(t *testing.T) {
 		Pool: pool, LockedBy: "w-c3",
 		Source: localfs.NewSource(), Transport: tlocalfs.NewTransport(),
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	// (a) status='skipped', (b) attempts==0
 	var status string

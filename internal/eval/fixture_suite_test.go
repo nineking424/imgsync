@@ -101,7 +101,7 @@ func TestC6_FixtureSuite(t *testing.T) {
 		job, err := worker.LeaseJob(ctx, pool, "w-c6")
 		require.NoError(t, err)
 		require.NotNil(t, job)
-		_ = worker.ProcessJob(ctx, worker.Deps{
+		_, _ = worker.ProcessJob(ctx, worker.Deps{
 			Pool: pool, LockedBy: "w-c6",
 			Source: sourceImpl, Transport: transportImpl,
 		}, job)
@@ -132,7 +132,7 @@ func TestC6_FixtureSuite(t *testing.T) {
 		job, err := worker.LeaseJob(ctx, pool, "w-c6")
 		require.NoError(t, err)
 		require.NotNil(t, job)
-		_ = worker.ProcessJob(ctx, worker.Deps{
+		_, _ = worker.ProcessJob(ctx, worker.Deps{
 			Pool: pool, LockedBy: "w-c6",
 			Source: localfs.NewSource(), Transport: tlocalfs.NewTransport(),
 		}, job)
@@ -209,7 +209,7 @@ func TestC6_FixtureSuite(t *testing.T) {
 		job2, err := worker.LeaseJob(ctx, pool, "rescue-pod")
 		require.NoError(t, err)
 		require.NotNil(t, job2)
-		_ = worker.ProcessJob(ctx, worker.Deps{
+		_, _ = worker.ProcessJob(ctx, worker.Deps{
 			Pool: pool, LockedBy: "rescue-pod",
 			Source: localfs.NewSource(), Transport: tlocalfs.NewTransport(),
 		}, job2)

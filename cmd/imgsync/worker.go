@@ -132,8 +132,8 @@ func newWorkerCmd() *cobra.Command {
 				// worker has no err in this signature; lease errors are logged separately.
 				m.OnLeaseAttempt(success, nil)
 			}
-			r.OnFinish = func(j *worker.Job) {
-				m.OnJobFinished(j.SrcProtocol, j.DstProtocol, j.Status, j.Duration())
+			r.OnFinish = func(j *worker.Job, result string) {
+				m.OnJobFinished(j.SrcProtocol, j.DstProtocol, result, j.Duration())
 			}
 			r.OnWorkerStart = func(pod string) {
 				atomic.AddInt32(&workersGauge, 1)
