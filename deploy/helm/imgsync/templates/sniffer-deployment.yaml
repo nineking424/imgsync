@@ -28,6 +28,9 @@ spec:
         {{- include "imgsync.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: sniffer
     spec:
+      serviceAccountName: {{ include "imgsync.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: sniffer
           image: {{ include "imgsync.image" . }}
@@ -73,12 +76,20 @@ spec:
             failureThreshold: 30
           resources:
             {{- toYaml .Values.sniffer.resources | nindent 12 }}
-          {{- with .Values.extraVolumeMounts }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.extraVolumes }}
+            {{- end }}
       volumes:
+        # readOnlyRootFilesystem=true forces /tmp to be a writable emptyDir
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
 {{- end }}

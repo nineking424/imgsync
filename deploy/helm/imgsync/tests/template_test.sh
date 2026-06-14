@@ -111,6 +111,18 @@ grep -q "livenessProbe" "$TMP/t-sniff-deploy.yaml" || \
 grep -q "readinessProbe" "$TMP/t-sniff-deploy.yaml" || \
   { echo "FAIL: sniffer readinessProbe missing"; exit 1; }
 
+# ─── Test 10b: sniffer hardening (securityContext + SA + /tmp) ───────
+# The sniffer parses untrusted source rows, so it MUST get the same hardening
+# as the worker/migrate-job: nonroot UID, RO root FS, a non-default SA, and a
+# writable /tmp emptyDir (RO root FS forces it). Assert against the ISOLATED
+# sniffer manifest ($TMP/t-sniff-deploy.yaml) — Test 5's full-render grep
+# passes on the worker manifest alone, so it can't catch a sniffer regression.
+echo "==> sniffer securityContext + serviceAccount"
+grep -q "runAsNonRoot: true"           "$TMP/t-sniff-deploy.yaml" || { echo "FAIL: sniffer runAsNonRoot not true"; exit 1; }
+grep -q "runAsUser: 65532"             "$TMP/t-sniff-deploy.yaml" || { echo "FAIL: sniffer runAsUser not 65532"; exit 1; }
+grep -q "readOnlyRootFilesystem: true" "$TMP/t-sniff-deploy.yaml" || { echo "FAIL: sniffer readOnlyRootFilesystem missing"; exit 1; }
+grep -q "serviceAccountName:"          "$TMP/t-sniff-deploy.yaml" || { echo "FAIL: sniffer serviceAccountName missing (falls back to default SA)"; exit 1; }
+
 # ─── Test 11: ServiceMonitor disabled by default ────────────────────
 echo "==> ServiceMonitor default off"
 if grep -q "kind: ServiceMonitor" "$TMP/t1.yaml"; then
