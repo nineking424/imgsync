@@ -3,6 +3,7 @@ package sniffer
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -48,13 +49,15 @@ func New(cfg Config) *Sniffer {
 	}
 }
 
-// RunOnce executes one poll iteration: load watermark → fetch batch → enqueue
-// each row → advance watermark to the last row's (ts, pk).
-// Returns the count of rows inserted (UNIQUE conflicts count as 0).
-// Watermark is advanced only after all enqueue calls succeed so that a
-// mid-batch error preserves the old watermark and the batch is retried in full.
-// On success, OnEnqueue (if set) fires once with (SourceID, n). On error,
-// OnError (if set) fires once with SourceID.
+// RunOnce executes one poll iteration: load watermark → fetch batch → render +
+// batch-enqueue the renderable rows → advance watermark to the last row's
+// (ts, pk). Returns the count of rows inserted (UNIQUE conflicts count as 0).
+// A row that cannot be rendered is a deterministic poison row: it is logged and
+// skipped (not counted), and the watermark still advances past it so it can
+// never stall the source. The watermark is advanced only after the batch
+// enqueues cleanly, so a transient enqueue/DB error preserves the old watermark
+// and the batch is retried in full. On success, OnEnqueue (if set) fires once
+// with (SourceID, n). On error, OnError (if set) fires once with SourceID.
 func (s *Sniffer) RunOnce(ctx context.Context) (int, error) {
 	n, err := s.runOnceImpl(ctx)
 	if err != nil {
@@ -83,32 +86,43 @@ func (s *Sniffer) runOnceImpl(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	inserted := 0
+	// Render every row up front, collecting the renderable ones into a single
+	// batch. A render error is DETERMINISTIC — the same row fails identically on
+	// every retry (e.g. a NULL/missing templated column under missingkey=error),
+	// so it can never self-heal. We log+skip such a poison row and continue the
+	// batch so the watermark still advances past it; otherwise one un-renderable
+	// row would stall ALL ingest for this source forever (#29). Transient
+	// enqueue/DB errors below still early-return to preserve the watermark for a
+	// whole-batch retry (the crash-safety guarantee).
+	specs := make([]JobSpec, 0, len(rows))
 	for _, r := range rows {
 		dst, err := s.cfg.Dst.Render(r.Fields)
 		if err != nil {
-			return inserted, fmt.Errorf("render dst pk=%s: %w", r.PK, err)
+			log.Printf("sniffer %s: skipping un-renderable row pk=%s: render dst: %v", s.cfg.SourceID, r.PK, err)
+			continue
 		}
 		src, err := s.src.Render(r.Fields)
 		if err != nil {
-			return inserted, fmt.Errorf("render src pk=%s: %w", r.PK, err)
+			log.Printf("sniffer %s: skipping un-renderable row pk=%s: render src: %v", s.cfg.SourceID, r.PK, err)
+			continue
 		}
-		ok, err := s.enq.Enqueue(ctx, JobSpec{
+		specs = append(specs, JobSpec{
 			TraceID:     TraceID(s.cfg.Query.Table, r.PK),
 			Src:         src,
 			Dst:         dst,
 			SrcProtocol: s.cfg.SrcProtocol,
 			DstProtocol: s.cfg.DstProtocol,
 		})
-		if err != nil {
-			return inserted, fmt.Errorf("enqueue pk=%s: %w", r.PK, err)
-		}
-		if ok {
-			inserted++
-		}
 	}
 
-	// Advance watermark only after the full batch enqueues successfully.
+	inserted, err := s.enq.EnqueueBatch(ctx, specs)
+	if err != nil {
+		return 0, fmt.Errorf("enqueue batch: %w", err)
+	}
+
+	// Advance watermark only after the full batch enqueues successfully. We
+	// advance to the last FETCHED row (not the last enqueued one) so the
+	// watermark moves past a trailing poison row too.
 	last := rows[len(rows)-1]
 	if err := s.state.Upsert(ctx, State{
 		SourceID:  s.cfg.SourceID,
