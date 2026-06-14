@@ -1,5 +1,3 @@
-//go:build integration
-
 package sniffer_test
 
 import (
