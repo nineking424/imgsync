@@ -24,6 +24,11 @@ type Query struct {
 	// resolution in SQL; sub-second values truncate to 0s (silently disabling
 	// bias).
 	BiasDuration time.Duration
+	// QueryTimeout bounds a single Fetch against the source DB. The sniffer loop
+	// ctx (signal.NotifyContext) has no deadline, so without this a hung source
+	// query would block the poll loop indefinitely. Values <= 0 disable the
+	// per-query timeout (caller ctx alone governs).
+	QueryTimeout time.Duration
 }
 
 // Fetch runs the windowed query against the source DB.
@@ -48,6 +53,11 @@ type Query struct {
 func (q Query) Fetch(ctx context.Context, pool *pgxpool.Pool, from State) ([]Row, error) {
 	if q.BatchSize <= 0 {
 		return nil, fmt.Errorf("batch_size must be > 0")
+	}
+	if q.QueryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, q.QueryTimeout)
+		defer cancel()
 	}
 	cols := append([]string{q.PKColumn, q.TSColumn}, q.ExtraColumns...)
 	colList := ""
