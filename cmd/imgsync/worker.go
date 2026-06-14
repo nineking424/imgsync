@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/db"
 	"github.com/nineking424/imgsync/internal/health"
@@ -17,6 +19,7 @@ import (
 	srcftp "github.com/nineking424/imgsync/internal/sources/ftp"
 	"github.com/nineking424/imgsync/internal/sources/localfs"
 	"github.com/nineking424/imgsync/internal/sweeper"
+	"github.com/nineking424/imgsync/internal/transfer"
 	pftp "github.com/nineking424/imgsync/internal/transports/ftp"
 	tlocalfs "github.com/nineking424/imgsync/internal/transports/localfs"
 	"github.com/nineking424/imgsync/internal/worker"
@@ -68,7 +71,12 @@ func newWorkerCmd() *cobra.Command {
 			localTransport := tlocalfs.NewTransport()
 			ftpSrc := srcftp.NewSource(ftpPool)
 			ftpRaw := pftp.NewTransport(ftpPool)
-			ftpTr := hostcap.Wrap(pool, ftpRaw, hostcap.Config{Cap: envInt("IMGSYNC_FTP_HOST_CAP", 8)})
+			ftpTr, closeHostcap, err := newHostcapTransport(ctx, dsn, pool, ftpRaw,
+				hostcap.Config{Cap: envInt("IMGSYNC_FTP_HOST_CAP", 8)})
+			if err != nil {
+				return err
+			}
+			defer closeHostcap()
 
 			idle := backoff.NewIdle(backoff.Config{
 				BaseDelay: 50 * time.Millisecond,
@@ -150,6 +158,28 @@ func newWorkerCmd() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// newHostcapTransport wraps the raw FTP transport with the per-host concurrency
+// cap. It returns the wrapped transport and a closer for the resources the
+// wrapper owns. The hostcap wrapper pins a DB connection for the entire
+// transfer (it only holds a session advisory lock), so it draws from its OWN
+// dedicated pool rather than the worker pool. This keeps in-flight transfers
+// from starving lease/commit/sweep/scrape of worker conns (issue #18). The
+// dedicated pool is sized to Cap plus a small headroom for slot churn.
+func newHostcapTransport(ctx context.Context, dsn string, _ *pgxpool.Pool, inner transfer.Transport, cfg hostcap.Config) (transfer.Transport, func(), error) {
+	cap := cfg.Cap
+	if cap <= 0 {
+		cap = 8
+	}
+	capPool, err := db.NewPool(ctx, db.PoolConfig{
+		DSN:      dsn,
+		MaxConns: int32(cap) + 2,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return hostcap.Wrap(capPool, inner, cfg), capPool.Close, nil
 }
 
 func envInt(key string, def int) int {
