@@ -135,5 +135,5 @@ func TestApplyMigrations_RunTwice_NoOp(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close(ctx) })
 	var n int
 	require.NoError(t, conn.QueryRow(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&n))
-	require.Equal(t, 3, n, "expected exactly 3 migration versions, got duplicates or missing")
+	require.Equal(t, 4, n, "expected exactly 4 migration versions, got duplicates or missing")
 }
