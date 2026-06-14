@@ -7,11 +7,17 @@ import (
 	"os"
 	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nineking424/imgsync/internal/backoff"
 	"github.com/nineking424/imgsync/internal/transfer"
 )
+
+// drainTimeout bounds the best-effort lease-reset performed when a worker loop
+// exits due to ctx cancellation (SIGTERM). It uses a fresh context because the
+// loop ctx is already cancelled at drain time.
+const drainTimeout = 5 * time.Second
 
 // SourceLike and TransportLike are aliases for the streaming interfaces. Used
 // by the runner factories.
@@ -76,13 +82,10 @@ func (r *Runner) loop(ctx context.Context, idx int) {
 	r.emitStart()
 	defer r.emitStop()
 	lockedBy := fmt.Sprintf("%s-w%d", r.PodName, idx)
-	defer func() {
-		if rec := recover(); rec != nil {
-			fmt.Fprintf(os.Stderr,
-				"imgsync worker: panic in worker %d (%s): %v\n%s\n",
-				idx, lockedBy, rec, debug.Stack())
-		}
-	}()
+	// Graceful drain (#21): when the loop exits because ctx was cancelled
+	// (SIGTERM), best-effort requeue any row this worker still holds leased so it
+	// reschedules immediately instead of waiting ~5 min for the sweeper.
+	defer r.drainLease(lockedBy)
 	for {
 		if err := ctx.Err(); err != nil {
 			return
@@ -113,32 +116,78 @@ func (r *Runner) loop(ctx context.Context, idx int) {
 		}
 		r.IdleBackoff.WakeAll()
 
-		src, err := r.SourceFor(job.SrcProtocol)
-		if err != nil {
-			_ = writeTerminal(ctx, Deps{Pool: r.Pool, LockedBy: lockedBy}, job,
-				"dead", "dead",
-				map[string]any{"error": err.Error(), "stage": "source-factory"}, true)
-			r.fire(job, "dead")
-			continue
-		}
-		tr, err := r.TransportFor(job.DstProtocol)
-		if err != nil {
-			_ = writeTerminal(ctx, Deps{Pool: r.Pool, LockedBy: lockedBy}, job,
-				"dead", "dead",
-				map[string]any{"error": err.Error(), "stage": "transport-factory"}, true)
-			r.fire(job, "dead")
-			continue
-		}
+		// processOne recovers panics per-iteration (#23): a panicking
+		// Source/Transport must not unwind the loop goroutine. On panic it
+		// records a retry/terminal outcome so attempts advances (poison caps to
+		// dead) and the loop continues draining.
+		r.processOne(ctx, idx, lockedBy, job)
+	}
+}
 
-		result, _ := ProcessJob(ctx, Deps{
-			Pool: r.Pool, LockedBy: lockedBy, Source: src, Transport: tr,
-			OnRetry: func(stage string) {
-				if r.OnRetry != nil {
-					r.OnRetry(job, stage)
-				}
-			},
-		}, job)
-		r.fire(job, result)
+// processOne dispatches a single leased job and guarantees the worker loop
+// survives a panic raised anywhere inside ProcessJob. A recovered panic is
+// turned into a retry/terminal outcome via writeRetryOrDead so attempts
+// advances under the existing lease guard; a poison job therefore eventually
+// caps to dead instead of being re-leased and re-panicking forever.
+func (r *Runner) processOne(ctx context.Context, idx int, lockedBy string, job *Job) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			fmt.Fprintf(os.Stderr,
+				"imgsync worker: recovered panic in worker %d (%s) job %d: %v\n%s\n",
+				idx, lockedBy, job.ID, rec, debug.Stack())
+			// Use a fresh context: ctx may already be cancelled if the panic
+			// coincided with shutdown, but the outcome write must still land.
+			wctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
+			defer cancel()
+			result, _ := writeRetryOrDead(wctx,
+				Deps{Pool: r.Pool, LockedBy: lockedBy}, job,
+				fmt.Errorf("panic in job processing: %v", rec),
+				map[string]any{"error": fmt.Sprintf("%v", rec), "stage": "panic"})
+			r.fire(job, result)
+		}
+	}()
+
+	src, err := r.SourceFor(job.SrcProtocol)
+	if err != nil {
+		_ = writeTerminal(ctx, Deps{Pool: r.Pool, LockedBy: lockedBy}, job,
+			"dead", "dead",
+			map[string]any{"error": err.Error(), "stage": "source-factory"}, true)
+		r.fire(job, "dead")
+		return
+	}
+	tr, err := r.TransportFor(job.DstProtocol)
+	if err != nil {
+		_ = writeTerminal(ctx, Deps{Pool: r.Pool, LockedBy: lockedBy}, job,
+			"dead", "dead",
+			map[string]any{"error": err.Error(), "stage": "transport-factory"}, true)
+		r.fire(job, "dead")
+		return
+	}
+
+	result, _ := ProcessJob(ctx, Deps{
+		Pool: r.Pool, LockedBy: lockedBy, Source: src, Transport: tr,
+		OnRetry: func(stage string) {
+			if r.OnRetry != nil {
+				r.OnRetry(job, stage)
+			}
+		},
+	}, job)
+	r.fire(job, result)
+}
+
+// drainLease best-effort requeues any row still leased by this worker on a clean
+// shutdown (#21). It runs after the loop ctx is already cancelled, so it derives
+// a fresh short-lived context. Failures are logged and ignored — the sweeper is
+// the backstop.
+func (r *Runner) drainLease(lockedBy string) {
+	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
+	defer cancel()
+	if _, err := r.Pool.Exec(ctx, `
+UPDATE transfer_jobs
+SET status='pending', locked_at=NULL, locked_by=NULL, updated_at=NOW()
+WHERE status='leased' AND locked_by=$1`, lockedBy); err != nil {
+		fmt.Fprintf(os.Stderr,
+			"imgsync worker: drain reset failed (%s): %v\n", lockedBy, err)
 	}
 }
 
