@@ -18,6 +18,9 @@ type Deps struct {
 	LockedBy  string
 	Source    transfer.Source
 	Transport transfer.Transport
+	// OnRetry fires when writeRetryOrDead schedules a retry (status=pending,
+	// attempts<max). stage is the error-category that triggered it. nil-safe.
+	OnRetry func(stage string)
 }
 
 // ProcessJob drives a single leased job to a terminal status. It never returns
@@ -180,6 +183,10 @@ INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,'fa
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
+	}
+	if d.OnRetry != nil {
+		stage, _ := detail["stage"].(string)
+		d.OnRetry(stage)
 	}
 	return "fail", nil
 }
