@@ -9,12 +9,12 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nineking424/imgsync/internal/env"
 	"github.com/nineking424/imgsync/internal/health"
 	"github.com/nineking424/imgsync/internal/metrics"
 	"github.com/nineking424/imgsync/internal/sniffer"
@@ -44,10 +44,10 @@ type SnifferConfig struct {
 // SnifferConfig. Returns an error if any required variable is absent.
 func ParseSnifferConfig() (SnifferConfig, error) {
 	c := SnifferConfig{
-		Shadow:       envBool("SNIFFER_SHADOW", true),
-		BatchSize:    envInt("SNIFFER_BATCH_SIZE", 500),
-		BiasDuration: time.Duration(envInt("SNIFFER_BIAS_SEC", 5)) * time.Second,
-		IntervalSec:  envInt("SNIFFER_INTERVAL_SEC", 60),
+		Shadow:       env.Bool("SNIFFER_SHADOW", true),
+		BatchSize:    env.Int("SNIFFER_BATCH_SIZE", 500),
+		BiasDuration: time.Duration(env.Int("SNIFFER_BIAS_SEC", 5)) * time.Second,
+		IntervalSec:  env.Int("SNIFFER_INTERVAL_SEC", 60),
 		SourceID:     os.Getenv("SNIFFER_SOURCE_ID"),
 		SourceDSN:    os.Getenv("SNIFFER_SOURCE_DSN"),
 		ImgsyncDSN:   os.Getenv("SNIFFER_IMGSYNC_DSN"),
@@ -178,24 +178,4 @@ func RunSniffer(ctx context.Context, cfg SnifferConfig) error {
 			log.Printf("sniffer enqueued %d new jobs", n)
 		}
 	}
-}
-
-// envInt returns the integer value of key, or def if the variable is absent or
-// cannot be parsed.
-func envInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return def
-}
-
-// envBool returns the boolean value of key ("1" or "true", case-insensitive),
-// or def if absent.
-func envBool(key string, def bool) bool {
-	if v := os.Getenv(key); v != "" {
-		return v == "1" || strings.EqualFold(v, "true")
-	}
-	return def
 }

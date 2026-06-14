@@ -12,8 +12,8 @@ import (
 // queueDepthCollector emits imgsync_jobs_in_status{status} by running
 // SELECT status, COUNT(*) FROM transfer_jobs GROUP BY status at scrape time.
 // 2-second timeout per Collect. Failures emit 0 metrics + warn log; never
-// panics, never blocks. Phase 1.5 adds an index that makes this an index-only
-// scan.
+// panics, never blocks. Migration 0003 adds transfer_jobs_status_idx, which
+// makes this an index-only scan.
 type queueDepthCollector struct {
 	pool *pgxpool.Pool
 	desc *prometheus.Desc

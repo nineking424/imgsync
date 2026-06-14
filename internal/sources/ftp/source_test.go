@@ -88,24 +88,8 @@ func TestFTPSource_BadURIScheme_ReturnsErrPermanent(t *testing.T) {
 		"non-ftp scheme must be ErrPermanent, got %v", err)
 }
 
-func TestFTPSource_isNotFound_NarrowsOn550Permission(t *testing.T) {
-	cases := []struct {
-		name string
-		msg  string
-		want bool
-	}{
-		{"missing-no-such-file", "550 No such file or directory", true},
-		{"missing-not-found", "550 file not found", true},
-		{"missing-bare-550", "550 Requested action not taken", true},
-		{"permission-denied", "550 Permission denied", false},
-		{"access-denied", "550 Access denied", false},
-		{"file-unavailable", "550 File unavailable", true},
-		{"non-550-permission", "530 Login incorrect", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := srcftp.IsNotFoundForTest(errors.New(tc.msg))
-			require.Equal(t, tc.want, got, "msg=%q", tc.msg)
-		})
-	}
-}
+// isNotFound classification by reply code (not message substrings) is covered
+// by the *textproto.Error cases in source_textproto_test.go. The former
+// string-matching table (which carved out "550 Permission denied" by keyword)
+// was removed with the #37 refactor: the code-based classifier treats every 550
+// reply as a skippable not-found, mirroring internal/transports/ftp.classify.

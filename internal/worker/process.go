@@ -151,7 +151,7 @@ func writeRetryOrDead(ctx context.Context, d Deps, job *Job, jobErr error, detai
 		}
 		return "dead", nil
 	}
-	backoff := time.Duration(1<<nextAttempts) * time.Second // 2,4,8,16,32...
+	backoff := retryBackoff(nextAttempts) // ~2,4,8,16,32... seconds, ±25% jitter
 	detailJSON, _ := json.Marshal(detail)
 	// Single writable-CTE statement (implicit tx via pool.Exec): the UPDATE
 	// carries the #19 lease guard, and the 'fail' event INSERT selects from the
@@ -168,7 +168,7 @@ WITH u AS (
 )
 INSERT INTO transfer_events (trace_id, job_id, status, detail)
 SELECT trace_id, $1, 'fail', $5 FROM u`,
-		job.ID, nextAttempts, fmt.Sprintf("%d seconds", int(backoff.Seconds())), d.LockedBy, detailJSON)
+		job.ID, nextAttempts, fmt.Sprintf("%d milliseconds", backoff.Milliseconds()), d.LockedBy, detailJSON)
 	if err != nil {
 		return "", err
 	}
@@ -213,7 +213,7 @@ SELECT trace_id, $1, $5, $6 FROM u`, job.ID, jobStatus, attempts, d.LockedBy, ev
 }
 
 func openErrDetails(err error) map[string]any {
-	d := map[string]any{"error": err.Error(), "stage": "open"}
+	d := map[string]any{"error": sanitizeErrMsg(err.Error()), "stage": "open"}
 	if errors.Is(err, transfer.ErrSkippable) {
 		d["reason"] = "source_not_found"
 	}
@@ -221,5 +221,5 @@ func openErrDetails(err error) map[string]any {
 }
 
 func transportErrDetails(err error) map[string]any {
-	return map[string]any{"error": err.Error(), "stage": "transport"}
+	return map[string]any{"error": sanitizeErrMsg(err.Error()), "stage": "transport"}
 }
