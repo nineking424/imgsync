@@ -103,28 +103,22 @@ func writeSuccess(ctx context.Context, d Deps, job *Job, written int64, shaHex s
 		"sha256":      shaHex,
 		"duration_ms": time.Since(start).Milliseconds(),
 	})
-	tx, err := d.Pool.Begin(ctx)
-	if err != nil {
+	// Single writable-CTE statement (implicit tx via pool.Exec): the UPDATE
+	// carries the #19 lease guard, and the event INSERT selects from the CTE so
+	// it only fires when the UPDATE matched the leased row. When the lease was
+	// lost the UPDATE matches 0 rows, the CTE is empty, and no event is inserted
+	// — a silent no-op, identical to the previous RowsAffected()==0 behavior.
+	if _, err := d.Pool.Exec(ctx, `
+WITH u AS (
+  UPDATE transfer_jobs SET status='succeeded', locked_at=NULL, locked_by=NULL, updated_at=NOW()
+  WHERE id=$1 AND status='leased' AND locked_by=$2
+  RETURNING trace_id
+)
+INSERT INTO transfer_events (trace_id, job_id, status, detail)
+SELECT trace_id, $1, 'success', $3 FROM u`, job.ID, d.LockedBy, detail); err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	ct, err := tx.Exec(ctx, `
-UPDATE transfer_jobs SET status='succeeded', locked_at=NULL, locked_by=NULL, updated_at=NOW()
-WHERE id=$1 AND status='leased' AND locked_by=$2`, job.ID, d.LockedBy)
-	if err != nil {
-		return err
-	}
-	if ct.RowsAffected() == 0 {
-		// Lease was lost (swept + re-leased to another worker): silent no-op.
-		return nil
-	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,'success',$3)`,
-		job.TraceID, job.ID, detail); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // classifyAndWrite maps a job-level error to its terminal write and returns the
@@ -159,30 +153,28 @@ func writeRetryOrDead(ctx context.Context, d Deps, job *Job, jobErr error, detai
 	}
 	backoff := time.Duration(1<<nextAttempts) * time.Second // 2,4,8,16,32...
 	detailJSON, _ := json.Marshal(detail)
-	tx, err := d.Pool.Begin(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	ct, err := tx.Exec(ctx, `
-UPDATE transfer_jobs
-SET status='pending', attempts=$2, next_run_at=NOW()+$3::INTERVAL,
-    locked_at=NULL, locked_by=NULL, updated_at=NOW()
-WHERE id=$1 AND status='leased' AND locked_by=$4`, job.ID, nextAttempts, fmt.Sprintf("%d seconds", int(backoff.Seconds())), d.LockedBy)
+	// Single writable-CTE statement (implicit tx via pool.Exec): the UPDATE
+	// carries the #19 lease guard, and the 'fail' event INSERT selects from the
+	// CTE. When the lease was lost the UPDATE matches 0 rows, the CTE is empty,
+	// and no event is inserted; ct.RowsAffected() (the INSERT count) is then 0,
+	// reproducing the previous silent no-op and skipping OnRetry.
+	ct, err := d.Pool.Exec(ctx, `
+WITH u AS (
+  UPDATE transfer_jobs
+  SET status='pending', attempts=$2, next_run_at=NOW()+$3::INTERVAL,
+      locked_at=NULL, locked_by=NULL, updated_at=NOW()
+  WHERE id=$1 AND status='leased' AND locked_by=$4
+  RETURNING trace_id
+)
+INSERT INTO transfer_events (trace_id, job_id, status, detail)
+SELECT trace_id, $1, 'fail', $5 FROM u`,
+		job.ID, nextAttempts, fmt.Sprintf("%d seconds", int(backoff.Seconds())), d.LockedBy, detailJSON)
 	if err != nil {
 		return "", err
 	}
 	if ct.RowsAffected() == 0 {
 		// Lease was lost (swept + re-leased to another worker): silent no-op.
 		return "", nil
-	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,'fail',$3)`,
-		job.TraceID, job.ID, detailJSON); err != nil {
-		return "", err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", err
 	}
 	if d.OnRetry != nil {
 		stage, _ := detail["stage"].(string)
@@ -201,28 +193,23 @@ func writeTerminal(ctx context.Context, d Deps, job *Job, jobStatus, eventStatus
 
 func writeTerminalWithAttempts(ctx context.Context, d Deps, job *Job, jobStatus, eventStatus string, detail map[string]any, attempts int) error {
 	detailJSON, _ := json.Marshal(detail)
-	tx, err := d.Pool.Begin(ctx)
-	if err != nil {
+	// Single writable-CTE statement (implicit tx via pool.Exec): the UPDATE
+	// carries the #19 lease guard, and the event INSERT selects from the CTE.
+	// When the lease was lost the UPDATE matches 0 rows, the CTE is empty, and
+	// no event is inserted — a silent no-op, identical to the previous
+	// RowsAffected()==0 behavior.
+	if _, err := d.Pool.Exec(ctx, `
+WITH u AS (
+  UPDATE transfer_jobs
+  SET status=$2, attempts=$3, locked_at=NULL, locked_by=NULL, updated_at=NOW()
+  WHERE id=$1 AND status='leased' AND locked_by=$4
+  RETURNING trace_id
+)
+INSERT INTO transfer_events (trace_id, job_id, status, detail)
+SELECT trace_id, $1, $5, $6 FROM u`, job.ID, jobStatus, attempts, d.LockedBy, eventStatus, detailJSON); err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	ct, err := tx.Exec(ctx, `
-UPDATE transfer_jobs
-SET status=$2, attempts=$3, locked_at=NULL, locked_by=NULL, updated_at=NOW()
-WHERE id=$1 AND status='leased' AND locked_by=$4`, job.ID, jobStatus, attempts, d.LockedBy)
-	if err != nil {
-		return err
-	}
-	if ct.RowsAffected() == 0 {
-		// Lease was lost (swept + re-leased to another worker): silent no-op.
-		return nil
-	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,$3,$4)`,
-		job.TraceID, job.ID, eventStatus, detailJSON); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func openErrDetails(err error) map[string]any {
