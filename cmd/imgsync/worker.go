@@ -143,13 +143,13 @@ func newWorkerCmd() *cobra.Command {
 			// Retention is OPT-IN: IMGSYNC_RETENTION_DAYS=0 (default) disables
 			// it and nothing is ever deleted. A positive value deletes terminal
 			// rows older than that many days (events cascade via the FK).
-			retentionDays := envInt("IMGSYNC_RETENTION_DAYS", 0)
+			retentionDays := env.Int("IMGSYNC_RETENTION_DAYS", 0)
 			if retentionDays > 0 {
 				go func() {
 					_ = retention.Run(ctx, pool, retention.Config{
 						Window:    time.Duration(retentionDays) * 24 * time.Hour,
-						BatchSize: envInt("IMGSYNC_RETENTION_BATCH", 1000),
-						Interval:  time.Duration(envInt("IMGSYNC_RETENTION_INTERVAL_SEC", 3600)) * time.Second,
+						BatchSize: env.Int("IMGSYNC_RETENTION_BATCH", 1000),
+						Interval:  time.Duration(env.Int("IMGSYNC_RETENTION_INTERVAL_SEC", 3600)) * time.Second,
 						OnCycle:   m.OnRetention,
 					})
 				}()
