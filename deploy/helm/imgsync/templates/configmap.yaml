@@ -6,9 +6,8 @@ metadata:
     {{- include "imgsync.labels" . | nindent 4 }}
 data:
   IMGSYNC_WORKERS:            "{{ .Values.worker.workers }}"
-  IMGSYNC_IDLE_SLEEP_MIN:     "{{ .Values.worker.idleSleepMin }}"
-  IMGSYNC_IDLE_SLEEP_MAX:     "{{ .Values.worker.idleSleepMax }}"
-  IMGSYNC_FTP_HOST_MAX_CONNS: "{{ .Values.worker.ftpHostMaxConns }}"
-  IMGSYNC_FTP_POOL_MAX_IDLE:  "{{ .Values.worker.ftpHostPoolMaxIdle }}"
-  IMGSYNC_FTP_POOL_IDLE_TTL:  "{{ .Values.worker.ftpHostPoolIdleTTL }}"
+  IMGSYNC_FTP_MAX_PER_HOST:   "{{ .Values.worker.ftpMaxPerHost }}"
+  IMGSYNC_FTP_IDLE_TTL_SEC:   "{{ .Values.worker.ftpIdleTTLSec }}"
+  IMGSYNC_FTP_NOOP_AFTER_SEC: "{{ .Values.worker.ftpNoopAfterSec }}"
+  IMGSYNC_FTP_HOST_CAP:       "{{ .Values.worker.ftpHostCap }}"
   IMGSYNC_HEALTH_ADDR:        ":{{ .Values.health.port }}"

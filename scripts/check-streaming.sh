@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# CI guard: forbid io.ReadAll / ioutil.ReadAll inside streaming hot paths.
+# CI guard: forbid io.ReadAll / ioutil.ReadAll and bytes.Buffer / bytes.NewBuffer
+# full-body buffering inside streaming hot paths.
 # Runs from repo root.
 set -euo pipefail
 
@@ -14,7 +15,7 @@ for d in "${DIRS[@]}"; do
   if [[ ! -d "$d" ]]; then
     continue
   fi
-  matches=$(grep -RnE '\b(io|ioutil)\.ReadAll\b|bytes\.NewBuffer\b.*\bbody\b' "$d" \
+  matches=$(grep -RnE '\b(io|ioutil)\.ReadAll\b|bytes\.(NewBuffer|Buffer)\b' "$d" \
               --include='*.go' --exclude='*_test.go' \
               | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' \
               || true)
@@ -26,7 +27,7 @@ done
 
 if (( violations > 0 )); then
   echo ""
-  echo "FAIL: streaming hot path violation (io.ReadAll or bytes.NewBuffer(...body...))." >&2
+  echo "FAIL: streaming hot path violation (io.ReadAll or bytes.Buffer/bytes.NewBuffer full-body buffering)." >&2
   exit 1
 fi
-echo "OK: no io.ReadAll or bytes.NewBuffer(body) buffering in streaming hot paths"
+echo "OK: no io.ReadAll or bytes.Buffer/bytes.NewBuffer buffering in streaming hot paths"

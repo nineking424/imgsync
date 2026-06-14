@@ -138,6 +138,7 @@ func RunSniffer(ctx context.Context, cfg SnifferConfig) error {
 			ExtraColumns: cfg.ExtraColumns,
 			BatchSize:    cfg.BatchSize,
 			BiasDuration: cfg.BiasDuration,
+			QueryTimeout: srcPool.QueryTimeout,
 		},
 		Dst:         sniffer.DstTemplate{Pattern: cfg.DstPattern, Shadow: cfg.Shadow},
 		SrcPattern:  cfg.SrcPattern,
