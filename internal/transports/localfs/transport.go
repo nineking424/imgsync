@@ -28,6 +28,9 @@ func (t *Transport) Send(
 		return 0, "", err
 	}
 	dir := filepath.Dir(dst)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return 0, "", fmt.Errorf("localfs: mkdir dest: %w", err)
+	}
 	tmp, err := os.CreateTemp(dir, ".imgsync-*.tmp")
 	if err != nil {
 		return 0, "", fmt.Errorf("localfs: create tmp: %w", err)
