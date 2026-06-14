@@ -57,7 +57,8 @@ func TestProcessJob_Success_TransitionsToSucceededWithEvent(t *testing.T) {
 		Source:    localfs.NewSource(),
 		Transport: tlocalfs.NewTransport(),
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	var status string
 	require.NoError(t, pool.QueryRow(ctx,
@@ -93,7 +94,8 @@ func TestProcessJob_SourceMissing_TransitionsToSkippedNoAttemptsBump(t *testing.
 		Source:    localfs.NewSource(),
 		Transport: tlocalfs.NewTransport(),
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	var status string
 	var attempts int
@@ -120,7 +122,8 @@ func TestProcessJob_PermanentSrcError_TransitionsToDeadAttemptsBumped(t *testing
 		Source:    localfs.NewSource(),
 		Transport: tlocalfs.NewTransport(),
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	var status string
 	var attempts int
@@ -150,7 +153,8 @@ func TestProcessJob_RetryableTransportError_BackoffPending(t *testing.T) {
 		Source:    localfs.NewSource(),
 		Transport: tlocalfs.NewTransport(),
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	var status string
 	var attempts int
@@ -186,7 +190,8 @@ func TestProcessJob_RetryableHitsMaxAttempts_TransitionsToDead(t *testing.T) {
 		Source:    localfs.NewSource(),
 		Transport: tlocalfs.NewTransport(),
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	var status string
 	var attempts int
@@ -218,7 +223,8 @@ func TestProcessJob_TruncatedTransfer_PermanentDead(t *testing.T) {
 		Source:    localfs.NewSource(),
 		Transport: &truncatingTransport{actual: 5}, // claims 5 bytes ACK'd vs srcSize=11
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	var status string
 	require.NoError(t, pool.QueryRow(ctx,

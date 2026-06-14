@@ -60,7 +60,8 @@ func TestProcessJob_LeaseLost_TerminalWriteIsNoOp(t *testing.T) {
 	}
 	// A lost-lease outcome must be a silent no-op, not an error (the worker loop
 	// ignores ProcessJob's job-level outcome anyway).
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	// The row must NOT be clobbered: B still owns the lease. locked_by is
 	// nullable (terminal writes set it to NULL), so scan into a pointer; on the
@@ -107,7 +108,8 @@ func TestProcessJob_LeaseHeld_TerminalWriteSucceeds(t *testing.T) {
 		Source:    localfs.NewSource(),
 		Transport: tlocalfs.NewTransport(),
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job))
+	_, err = worker.ProcessJob(ctx, deps, job)
+	require.NoError(t, err)
 
 	var status string
 	require.NoError(t, pool.QueryRow(ctx,

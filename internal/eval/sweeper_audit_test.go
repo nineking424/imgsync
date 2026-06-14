@@ -79,7 +79,8 @@ func TestC2_SweeperRecoveredJob_HasAttemptsZero(t *testing.T) {
 		Pool: pool, LockedBy: "worker-B",
 		Source: localfs.NewSource(), Transport: tlocalfs.NewTransport(),
 	}
-	require.NoError(t, worker.ProcessJob(ctx, deps, job2))
+	_, err = worker.ProcessJob(ctx, deps, job2)
+	require.NoError(t, err)
 
 	var status string
 	var attempts int
