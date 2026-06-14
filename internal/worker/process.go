@@ -98,10 +98,15 @@ func writeSuccess(ctx context.Context, d Deps, job *Job, written int64, shaHex s
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `
+	ct, err := tx.Exec(ctx, `
 UPDATE transfer_jobs SET status='succeeded', locked_at=NULL, locked_by=NULL, updated_at=NOW()
-WHERE id=$1`, job.ID); err != nil {
+WHERE id=$1 AND status='leased' AND locked_by=$2`, job.ID, d.LockedBy)
+	if err != nil {
 		return err
+	}
+	if ct.RowsAffected() == 0 {
+		// Lease was lost (swept + re-leased to another worker): silent no-op.
+		return nil
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,'success',$3)`,
@@ -134,12 +139,17 @@ func writeRetryOrDead(ctx context.Context, d Deps, job *Job, jobErr error, detai
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `
+	ct, err := tx.Exec(ctx, `
 UPDATE transfer_jobs
 SET status='pending', attempts=$2, next_run_at=NOW()+$3::INTERVAL,
     locked_at=NULL, locked_by=NULL, updated_at=NOW()
-WHERE id=$1`, job.ID, nextAttempts, fmt.Sprintf("%d seconds", int(backoff.Seconds()))); err != nil {
+WHERE id=$1 AND status='leased' AND locked_by=$4`, job.ID, nextAttempts, fmt.Sprintf("%d seconds", int(backoff.Seconds())), d.LockedBy)
+	if err != nil {
 		return err
+	}
+	if ct.RowsAffected() == 0 {
+		// Lease was lost (swept + re-leased to another worker): silent no-op.
+		return nil
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,'fail',$3)`,
@@ -164,11 +174,16 @@ func writeTerminalWithAttempts(ctx context.Context, d Deps, job *Job, jobStatus,
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `
+	ct, err := tx.Exec(ctx, `
 UPDATE transfer_jobs
 SET status=$2, attempts=$3, locked_at=NULL, locked_by=NULL, updated_at=NOW()
-WHERE id=$1`, job.ID, jobStatus, attempts); err != nil {
+WHERE id=$1 AND status='leased' AND locked_by=$4`, job.ID, jobStatus, attempts, d.LockedBy)
+	if err != nil {
 		return err
+	}
+	if ct.RowsAffected() == 0 {
+		// Lease was lost (swept + re-leased to another worker): silent no-op.
+		return nil
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO transfer_events (trace_id, job_id, status, detail) VALUES ($1,$2,$3,$4)`,
