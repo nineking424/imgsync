@@ -4,10 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/nineking424/imgsync/internal/transfer"
 )
 
 // Transport writes streaming bodies to the local filesystem with atomic rename.
@@ -33,6 +36,12 @@ func (t *Transport) Send(
 	}
 	tmp, err := os.CreateTemp(dir, ".imgsync-*.tmp")
 	if err != nil {
+		// A missing parent dir (os.ErrNotExist) is a permanent misconfiguration:
+		// retrying cannot create it, so mark the job dead instead of burning the
+		// retry budget.
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, "", fmt.Errorf("localfs: create tmp: %w: %w", err, transfer.ErrPermanent)
+		}
 		return 0, "", fmt.Errorf("localfs: create tmp: %w", err)
 	}
 	tmpPath := tmp.Name()
@@ -41,7 +50,7 @@ func (t *Transport) Send(
 	hasher := sha256.New()
 	mw := io.MultiWriter(tmp, hasher)
 
-	written, copyErr := io.Copy(mw, body)
+	written, copyErr := io.Copy(mw, transfer.NewCtxReader(ctx, body))
 	if copyErr != nil {
 		_ = tmp.Close()
 		cleanupTmp()
