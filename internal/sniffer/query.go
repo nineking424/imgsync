@@ -3,6 +3,7 @@ package sniffer
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,6 +30,22 @@ type Query struct {
 	// query would block the poll loop indefinitely. Values <= 0 disable the
 	// per-query timeout (caller ctx alone governs).
 	QueryTimeout time.Duration
+}
+
+// validIdentifier enforces a strict allowlist for SQL identifiers that get
+// interpolated into queries. SQL identifiers cannot be parameterized via
+// placeholders, so unvalidated input here would allow SQL injection (e.g.
+// via multi-tenant config defining a custom table name like
+// "users; DROP TABLE foo; --"). Limiting to [a-zA-Z_][a-zA-Z0-9_]* mirrors
+// PostgreSQL's unquoted-identifier grammar and rejects quotes, semicolons,
+// dots (schema/cross-DB), and all other syntactic metacharacters.
+var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+func validateIdentifier(name string) error {
+	if !validIdentifier.MatchString(name) {
+		return fmt.Errorf("invalid SQL identifier: %s", name)
+	}
+	return nil
 }
 
 // Fetch runs the windowed query against the source DB.
@@ -59,6 +76,27 @@ func (q Query) Fetch(ctx context.Context, pool *pgxpool.Pool, from State) ([]Row
 		ctx, cancel = context.WithTimeout(ctx, q.QueryTimeout)
 		defer cancel()
 	}
+
+	// Security: SQL identifiers cannot be parameterized via $N placeholders, so
+	// they are interpolated directly into the query string. Validate every
+	// identifier against a strict allowlist before use to prevent SQL injection
+	// from untrusted Query configuration (e.g. attacker-controlled table/column
+	// names in a multi-tenant UI).
+	if err := validateIdentifier(q.Table); err != nil {
+		return nil, err
+	}
+	if err := validateIdentifier(q.PKColumn); err != nil {
+		return nil, err
+	}
+	if err := validateIdentifier(q.TSColumn); err != nil {
+		return nil, err
+	}
+	for _, c := range q.ExtraColumns {
+		if err := validateIdentifier(c); err != nil {
+			return nil, err
+		}
+	}
+
 	cols := append([]string{q.PKColumn, q.TSColumn}, q.ExtraColumns...)
 	colList := ""
 	for i, c := range cols {
